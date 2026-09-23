@@ -103,3 +103,10 @@ def test_agenda_headline_and_specific_promise():
 def test_search_prefers_substantive_speakers(store):
     rows = store.search("쌀값", limit=3)
     assert rows and rows[0]["speaker_type"] != "chair"
+
+
+def test_key_point_items_carry_speaker(store):
+    from agrisea.analysis import summarize_meeting
+    s = summarize_meeting(store, "SAMPLE-2025-1014")
+    assert s["key_point_items"] and all(p["speaker"] for p in s["key_point_items"])
+    assert set(s["composition"]) == {"member", "gov", "chair", "other"}

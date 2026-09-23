@@ -131,6 +131,41 @@ mark{background:var(--warn-weak);color:inherit;padding:0 2px;border-radius:3px}
 .bubble.a .who{color:var(--gov)}
 .bubble.a.promise{background:var(--warn-weak);box-shadow:inset 3px 0 0 var(--warn)}
 .quote .ctx{font-size:12px;color:var(--muted);margin:2px 0 4px;border-left:2px solid var(--member);padding-left:6px}
+
+/* 카드형 요약·접기·구성 막대 */
+.points{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px;margin-top:6px}
+.pt{border:1px solid var(--line);border-left:4px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--panel);font-size:14px;line-height:1.55}
+.pt.member{border-left-color:var(--member)} .pt.gov{border-left-color:var(--gov)} .pt.staff{border-left-color:var(--muted)} .pt.warn{border-left-color:var(--warn);background:var(--warn-weak)}
+.pt .who{font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.pt .who .meta{font-weight:400;color:var(--muted)}
+.pt .txt{display:-webkit-box;-webkit-line-clamp:5;-webkit-box-orient:vertical;overflow:hidden}
+.pt.open .txt{-webkit-line-clamp:unset}
+.mini{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:10px 0}
+.mini div{background:var(--bg);border-radius:8px;padding:8px 10px}
+.mini b{display:block;font-size:20px;line-height:1.2}
+.mini span{font-size:12px;color:var(--muted)}
+.stack{display:flex;height:12px;border-radius:6px;overflow:hidden;gap:2px;margin:6px 0 4px}
+.stack i{display:block;height:100%}
+.legend{display:flex;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--ink-2)}
+.legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+details.more{margin-top:6px}
+.points>details.more{grid-column:1/-1;margin-top:0}
+details.more>summary{cursor:pointer;color:var(--seq);font-size:13px;list-style:none;padding:6px 0}
+details.more>summary::-webkit-details-marker{display:none}
+details.more[open]>summary{display:none}
+.segtabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin:4px 0 12px;overflow-x:auto}
+.segtabs button{background:none;border:0;border-bottom:2px solid transparent;padding:8px 12px;color:var(--ink-2);cursor:pointer;white-space:nowrap;font:inherit}
+.segtabs button.on{color:var(--ink);border-bottom-color:var(--seq);font-weight:700}
+.segpanel{display:none}.segpanel.on{display:block}
+.filterchips{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.filterchips button{border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:4px 10px;font-size:13px;cursor:pointer;color:var(--ink-2)}
+.filterchips button.on{background:var(--seq);border-color:var(--seq);color:#fff}
+.rowlist .r{display:grid;grid-template-columns:86px 1fr auto;gap:10px;align-items:center;padding:8px 2px;border-bottom:1px solid var(--line);cursor:pointer;font-size:14px}
+.rowlist .r:hover{background:var(--bg)}
+.rowlist .r .d{color:var(--muted);font-size:12px}
+.rowlist .r .n{font-size:12px;color:var(--ink-2);min-width:60px;text-align:right}
+.hit-snip{font-size:14px;line-height:1.55;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+@media (max-width:640px){.mini{grid-template-columns:repeat(2,1fr)}.rowlist .r{grid-template-columns:70px 1fr}.rowlist .r .n{display:none}}
 .chat-day{display:flex;justify-content:center;margin:18px 0 4px}
 .chat-day span{font-size:12px;color:var(--muted);background:var(--bg);border:1px solid var(--line);border-radius:999px;padding:3px 12px}
 .quote{border-left:3px solid var(--line);padding:6px 12px;margin:8px 0;font-size:14px}
@@ -424,6 +459,31 @@ async function loadDash(){
 function gotoIssue(id){ openTab("issues"); showIssue(id) }
 function gotoMeeting(id){ openTab("meetings"); showMeeting(id) }
 
+
+// ── 공통 표시 도구: 카드형 문장, 접기, 구성 막대 ──
+const TYPE_CLS = t => t === "member" ? "member" : (["official", "witness"].includes(t) ? "gov" : (t ? "staff" : ""));
+function pointCards(items){
+  return `<div class="points">${items.map(p => `<div class="pt ${TYPE_CLS(p.speaker_type)}" onclick="this.classList.toggle('open')">
+    <div class="who">${esc(p.speaker || "")}${p.date ? `<span class="meta">${dot(p.date)}</span>` : ""}${chips(p.issues)}</div>
+    <div class="txt">${esc(p.text)}</div></div>`).join("")}</div>`;
+}
+function moreList(htmls, n, unit = "건", wrap = ""){
+  // wrap: 카드 격자처럼 감싸는 틀이 필요하면 클래스 이름(펼친 뒤에도 같은 격자로 보이게)
+  if(htmls.length <= n) return htmls.join("");
+  const rest = wrap ? `<div class="${wrap}">${htmls.slice(n).join("")}</div>` : htmls.slice(n).join("");
+  return htmls.slice(0, n).join("") + `<details class="more"><summary>${htmls.length - n}${unit} 더 보기 ▾</summary>${rest}</details>`;
+}
+function stackBar(parts){
+  const total = parts.reduce((a, p) => a + p.value, 0) || 1;
+  return `<div class="stack">${parts.filter(p => p.value).map(p => `<i style="flex:${p.value};background:${p.color}" data-tip="${esc(p.label)} ${fmt(p.value)} (${Math.round(p.value / total * 100)}%)"></i>`).join("")}</div>
+    <div class="legend">${parts.map(p => `<span><i style="background:${p.color}"></i>${esc(p.label)} ${Math.round(p.value / total * 100)}%</span>`).join("")}</div>`;
+}
+function columns(rows, {label = r => r.label, tip = r => ""} = {}){
+  const max = Math.max(1, ...rows.map(r => r.count));
+  return `<div class="cols" style="height:90px">${rows.map(r => `<div class="c" style="height:${Math.max(3, r.count / max * 100)}%" data-tip="${tip(r)}"></div>`).join("")}</div>
+    <div class="colx">${rows.map((r, i) => `<span>${i % Math.ceil(rows.length / 10 || 1) ? "" : esc(label(r))}</span>`).join("")}</div>`;
+}
+
 // ── 회의록 ──
 let meetingsCache = [], selMeeting = null;
 async function loadMeetings(){ meetingsCache = await api("/api/meetings?" + sessParam()); renderMeetingList() }
@@ -457,23 +517,32 @@ async function showMeeting(id, useLlm = false){
     <div class="card">
       <div class="muted" style="font-size:13px">${dot(m.date)} · ${esc(SESS[m.session_no]?.label || "")} ${m.is_sample ? '<span class="chip warn">가상 예시</span>' : ""}</div>
       <h2 style="margin:4px 0 10px;font-size:19px">${esc(meetingShort(m))}</h2>
-      <div class="row" style="gap:6px">
-        <span class="chip line">안건 ${m.agendas.length}건</span>
-        <span class="chip member">질의 위원 ${s.participants.members.length}명</span>
-        <span class="chip gov">정부·기관 답변자 ${s.participants.officials.length}명</span>
-        <span class="chip warn">약속 ${s.commitments.length}건</span>
+      <div class="row" style="gap:10px">
         ${m.pdf_url ? `<a href="${esc(m.pdf_url)}" target="_blank" rel="noopener" style="font-size:13px">회의록 원문(PDF)</a>` : ""}
         ${stats.llm_enabled && !llm ? `<button class="ghost" id="llmBtn">Claude로 서술형 요약</button>` : ""}
       </div>
-      <h3>핵심 쟁점</h3>${s.key_issues.map(i => `<span class="chip">${esc(i.label)} ${i.count}</span>`).join("") || '<span class="muted">-</span>'}
-      <h3>주요 내용</h3><ul style="margin:0;padding-left:20px">${s.key_points.map(p => `<li>${esc(p)}</li>`).join("") || "<li class='muted'>본문 없음</li>"}</ul>
+      <div class="mini">
+        <div><b>${fmt(m.agendas.filter(a => /^\s*\d+\s*\./.test(a)).length || m.agendas.length)}</b><span>안건</span></div>
+        <div><b>${fmt(s.participants.members.length)}</b><span>질의 위원</span></div>
+        <div><b>${fmt(s.participants.officials.length)}</b><span>정부·기관 답변자</span></div>
+        <div><b>${fmt(s.commitments.length)}</b><span>정부 약속</span></div>
+      </div>
+      ${s.composition ? `<h3>발언 구성</h3>${stackBar([
+        {label: "위원 질의", value: s.composition.member, color: "var(--member)"},
+        {label: "정부·기관 답변", value: s.composition.gov, color: "var(--gov)"},
+        {label: "위원장 진행", value: s.composition.chair, color: "var(--muted)"},
+        {label: "전문위원 등", value: s.composition.other, color: "var(--line)"}])}` : ""}
+      <h3>핵심 쟁점</h3>${s.key_issues.length ? barsHtml(s.key_issues.slice(0, 6).map(i => ({id: i.id, label: i.label, count: i.count})), {onclick: "gotoIssue"}) : '<span class="muted">-</span>'}
+      <h3>주요 발언 <span class="muted" style="font-weight:400;font-size:12px">카드를 누르면 전체 문장</span></h3>
+      ${(s.key_point_items || []).length ? pointCards(s.key_point_items) : `<ul style="margin:0;padding-left:20px">${s.key_points.map(p => `<li>${esc(p)}</li>`).join("") || "<li class='muted'>본문 없음</li>"}</ul>`}
     </div>
     ${llm ? `<div class="card"><h2>Claude 서술형 요약</h2><p>${esc(llm.overview)}</p>
       <h3>핵심안건</h3><ul>${llm.key_agendas.map(a => `<li><b>${esc(a.agenda)}</b> — ${esc(a.summary)} ${a.outcome ? `<span class="chip gov">${esc(a.outcome)}</span>` : ""}</li>`).join("")}</ul>
       <h3>국감 후속 점검사항</h3><ul>${llm.audit_followups.map(x => `<li>${esc(x)}</li>`).join("")}</ul></div>` : ""}
     <div class="card"><h2>주요 질의와 답변</h2><p class="sub">쟁점이 많고 정부 약속이 나온 대화 순</p>
-      ${s.qa_highlights.map(qaHtml).join("") || '<div class="empty">질의 없음</div>'}</div>
-    ${s.commitments.length ? `<div class="card"><h2>정부 약속 (${s.commitments.length})</h2>${s.commitments.map(c => `<div class="quote warn"><div class="who">${esc(c.speaker)}</div>${esc(c.text)}</div>`).join("")}</div>` : ""}
+      ${moreList(s.qa_highlights.map(qaHtml), 3, "개 질의응답") || '<div class="empty">질의 없음</div>'}</div>
+    ${s.commitments.length ? `<div class="card"><h2>정부 약속 <span class="muted" style="font-weight:400">${s.commitments.length}건</span></h2>
+      <div class="points">${s.commitments.map(c => `<div class="pt warn"><div class="who">${esc(c.speaker)}${chips(c.issues)}</div><div class="txt">${esc(c.text)}</div></div>`).join("")}</div></div>` : ""}
     <div class="card"><details><summary>안건 ${m.agendas.length}건 보기${agendas.length ? ` · 안건별 요약 ${agendas.length}건` : ""}</summary>
       ${agendas.map(a => `<h3>${esc(a.agenda)}</h3>${chips(a.issues)}<ul>${a.summary.map(x => `<li>${esc(x)}</li>`).join("")}</ul>`).join("")}
       <ol style="font-size:13px;color:var(--ink-2)">${m.agendas.map(a => `<li>${esc(a.replace(/^\d+\.\s*/, ""))}</li>`).join("")}</ol></details></div>
@@ -498,25 +567,49 @@ function snippet(text, q){
   const terms = q.split(/\s+/).filter(Boolean);
   const hits = terms.map(t => text.indexOf(t)).filter(x => x >= 0);
   const i = hits.length ? Math.min(...hits) : 0;
-  const start = Math.max(0, i - 90), end = Math.min(text.length, i + 240);
+  const start = Math.max(0, i - 60), end = Math.min(text.length, i + 180);
   let h = (start ? "…" : "") + esc(text.slice(start, end)) + (end < text.length ? "…" : "");
   terms.forEach(t => { h = h.split(esc(t)).join(`<mark>${esc(t)}</mark>`) });
   return h;
+}
+const TYPE_LABEL = {member: "위원 질의", gov: "정부·기관", chair: "위원장", other: "기타"};
+const typeGroup = t => t === "member" || t === "chair" ? t : (["official", "witness"].includes(t) ? "gov" : "other");
+let searchState = null;
+function hitCard(u, q){
+  const who = u.speaker_role === "위원" ? `${u.speaker_name} 위원` : `${u.speaker_role} ${u.speaker_name}`;
+  const flags = (u.is_commitment ? '<span class="chip warn">약속</span>' : "") + (u.is_data_request ? '<span class="chip warn">자료요구</span>' : "");
+  return `<div class="pt ${u.is_commitment ? "warn" : TYPE_CLS(u.speaker_type)}" onclick="this.classList.toggle('open')">
+    <div class="who">${esc(who)} ${flags}</div><div class="txt hit-snip">${snippet(u.text, q)}</div></div>`;
+}
+function renderSearch(){
+  const {r, q, filter} = searchState;
+  const rows = r.results.filter(u => !filter || typeGroup(u.speaker_type) === filter);
+  const byType = {}; r.results.forEach(u => byType[typeGroup(u.speaker_type)] = (byType[typeGroup(u.speaker_type)] || 0) + 1);
+  const bySess = {}; r.results.forEach(u => { if(u.session_no) bySess[u.session_no] = (bySess[u.session_no] || 0) + 1 });
+  const sessRows = Object.keys(bySess).map(Number).sort((a, b) => a - b).map(k => ({session: k, count: bySess[k]}));
+  const byMeeting = {};
+  rows.forEach(u => (byMeeting[u.meeting_id] ||= {date: u.meeting_date, title: u.meeting_title, session: u.session_no, items: []}).items.push(u));
+  const groups = Object.entries(byMeeting).map(([mid, g]) => `<div class="card">
+      <div class="muted" style="font-size:13px">${dot(g.date)} · ${esc(SESS[g.session]?.label || "")} · <button class="link" onclick="gotoMeeting('${esc(mid)}')">회의 요약 보기</button></div>
+      <h2 style="margin:2px 0 8px">${esc(meetingShort({title: g.title, session_no: g.session}))} <span class="muted" style="font-size:13px;font-weight:400">${g.items.length}건</span></h2>
+      <div class="points">${moreList(g.items.map(u => hitCard(u, q)), 3, "건", "points")}</div></div>`);
+  $("#qOut").innerHTML = `<div class="card">
+      <div><b>${scopeLabel()}</b>에서 <b>${fmt(r.count)}</b>건 · 회의 ${Object.keys(byMeeting).length}건${r.count >= 100 ? " (관련도 상위 100건)" : ""}</div>
+      <div class="filterchips">${[["", "전체", r.results.length], ...Object.keys(TYPE_LABEL).filter(k => byType[k]).map(k => [k, TYPE_LABEL[k], byType[k]])]
+        .map(([k, l, n]) => `<button class="${(filter || "") === k ? "on" : ""}" onclick="searchState.filter='${k}';renderSearch()">${l} ${fmt(n)}</button>`).join("")}</div>
+      <div class="grid g2" style="margin-top:10px">
+        <div><h3 style="margin-top:0">회기별 언급</h3>${sessRows.length > 1 ? columns(sessRows, {label: r => r.session, tip: r => `제${r.session}회 ${fmt(r.count)}건`}) : '<div class="muted">-</div>'}</div>
+        <div><h3 style="margin-top:0">관련 쟁점</h3>${r.issues.length ? barsHtml(r.issues.map(i => ({id: i.id, label: i.label, count: i.count})), {onclick: "gotoIssue"}) : '<div class="muted">-</div>'}</div>
+      </div></div>` +
+    (moreList(groups, 8, "개 회의") || '<div class="card empty">결과 없음 — 회기를 「전체 회기」로 바꾸거나 단어를 줄여 보세요.</div>');
 }
 async function doSearch(){
   const q = $("#q").value.trim(); if(!q) return;
   const p = new URLSearchParams({q, speaker_type: $("#qType").value, limit: 100});
   if(cur()) p.set("session", cur());
   $("#qOut").innerHTML = '<div class="card empty">검색 중…</div>';
-  const r = await api("/api/search?" + p);
-  const byMeeting = {};
-  r.results.forEach(u => (byMeeting[u.meeting_id] ||= {date: u.meeting_date, title: u.meeting_title, session: u.session_no, items: []}).items.push(u));
-  $("#qOut").innerHTML = `<div class="card"><b>${scopeLabel()}</b>에서 <b>${fmt(r.count)}</b>건 · 회의 ${Object.keys(byMeeting).length}건${r.count >= 100 ? " (최대 100건 표시)" : ""}
-      ${r.issues.length ? `<div style="margin-top:6px">관련 쟁점 ${r.issues.map(i => `<span class="chip">${esc(i.label)} ${i.count}</span>`).join("")}</div>` : ""}</div>` +
-    (Object.entries(byMeeting).map(([mid, g]) => `<div class="card">
-      <div class="muted" style="font-size:13px">${dot(g.date)} · ${esc(SESS[g.session]?.label || "")} · <button class="link" onclick="gotoMeeting('${esc(mid)}')">회의 요약 보기</button></div>
-      <h2 style="margin:2px 0 6px">${esc(meetingShort({title: g.title, session_no: g.session}))} <span class="muted" style="font-size:13px;font-weight:400">${g.items.length}건</span></h2>
-      ${g.items.map(u => uttHtml(u, q)).join("")}</div>`).join("") || '<div class="card empty">결과 없음 — 회기를 「전체 회기」로 바꾸거나 단어를 줄여 보세요.</div>');
+  searchState = {r: await api("/api/search?" + p), q, filter: ""};
+  renderSearch();
 }
 $("#qBtn").onclick = doSearch; $("#q").onkeydown = e => { if(e.key === "Enter") doSearch() };
 
@@ -563,13 +656,13 @@ async function showIssue(id){
       <div class="card"><h2>질의한 위원</h2><p class="sub">이 쟁점을 언급한 발언 수</p>${d.members.length ? barsHtml(d.members.map(m => ({...m, name: m.name + " 위원"}))) : '<div class="empty">-</div>'}</div>
     </div>
     <div class="card"><h2>질의와 정부 답변</h2><p class="sub">한 위원의 질의 순서에서 실제로 이어진 질의(왼쪽)와 정부 답변(오른쪽)입니다. <span class="chip warn">약속</span>은 구체적 조치 약속. 최근 회의 순.</p>
-      ${d.dialogue.map((t, i) => {
+      ${moreList(d.dialogue.map((t, i) => {
         const head = i === 0 || d.dialogue[i - 1].meeting_id !== t.meeting_id;
         return `${head ? `<div class="chat-day"><span>${dot(t.date)} · 제${t.session}회 · <button class="link" onclick="gotoMeeting('${esc(t.meeting_id)}')">회의 보기</button></span></div>` : ""}
         <div class="qa">${t.turns.map(x => x.side === "q"
           ? `<div class="bubble q"><div class="who">${esc(x.speaker)}</div>${esc(x.text)}</div>`
           : `<div class="bubble a${x.commitment ? " promise" : ""}"><div class="who">${esc(x.speaker)} ${x.commitment ? '<span class="chip warn">약속</span>' : ""}</div>${esc(x.text)}</div>`).join("")}</div>`;
-      }).join("") || '<div class="empty">-</div>'}</div>`;
+      }), 5, "개 대화") || '<div class="empty">-</div>'}</div>`;
 }
 // ── 쟁점 신경망(3D): 위원(입력층) → 쟁점(은닉층) → 기관(출력층) ──
 const THREE_URL = "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
@@ -888,18 +981,50 @@ async function fillBriefSelectors(){
   $("#bMember").innerHTML = '<option value="">위원(전체)</option>' + sp.filter(s => s.speaker_type === "member").sort((a, b) => a.speaker_name.localeCompare(b.speaker_name, "ko")).map(s => `<option>${esc(s.speaker_name)}</option>`).join("");
 }
 function briefParams(){ const p = new URLSearchParams({org: $("#bOrg").value, issue: $("#bIssue").value, keyword: $("#bKw").value, member: $("#bMember").value}); if(cur()) p.set("session", cur()); return p }
+function briefMember(name){
+  $("#bMember").value = name; $("#bOrg").value = ""; $("#bIssue").value = ""; $("#bKw").value = "";
+  $("#bBtn").click(); window.scrollTo({top: 0, behavior: "smooth"});
+}
+function segTabs(id, tabs){
+  return `<div class="segtabs" id="${id}">${tabs.map((t, i) => `<button class="${i ? "" : "on"}" data-k="${t[0]}" onclick="segShow('${id}','${t[0]}')">${t[1]}</button>`).join("")}</div>`;
+}
+function segShow(id, k){
+  document.querySelectorAll(`#${id} button`).forEach(b => b.classList.toggle("on", b.dataset.k === k));
+  document.querySelectorAll(`[data-seg="${id}"]`).forEach(p => p.classList.toggle("on", p.dataset.k === k));
+}
 $("#bBtn").onclick = async () => {
   $("#bOut").innerHTML = '<div class="card empty">만드는 중…</div>';
   const b = await api("/api/briefing?" + briefParams()), c = b.counts;
+  const orgs = {}; b.commitments.forEach(x => (orgs[x.org || "기타"] ||= []).push(x));
   $("#bOut").innerHTML = `
-  <div class="grid kpis">${[["관련 회의", c.meetings], ["관련 발언", c.utterances], ["질의·답변", c.qa_pairs], ["정부 약속", c.commitments]].map(([l, v]) => `<div class="card stat"><span class="l">${l}</span><span class="v">${fmt(v)}</span></div>`).join("")}</div>
+  <div class="grid kpis">${[["관련 회의", c.meetings], ["관련 발언", c.utterances], ["질의·답변", c.qa_pairs], ["구체적 정부 약속", b.commitments.length]].map(([l, v]) => `<div class="card stat"><span class="l">${l}</span><span class="v">${fmt(v)}</span></div>`).join("")}</div>
   <div class="card"><div class="muted" style="font-size:13px">${scopeLabel()}</div><h2 style="font-size:19px">${esc(b.target)}</h2>
-    <h3>핵심 쟁점</h3>${b.key_issues.length ? barsHtml(b.key_issues.map(i => ({id: i.id, label: i.label, count: i.count})), {onclick: "gotoIssue"}) : "-"}
-    <h3>주요 내용</h3><ul style="margin:0;padding-left:20px">${b.key_points.map(p => `<li>${esc(p)}</li>`).join("") || "<li class='muted'>-</li>"}</ul></div>
-  <div class="card"><h2>주요 질의와 답변</h2>${b.top_questions.map(q => `<div class="muted" style="font-size:12px;margin-top:10px">${dot(q.date)}</div>${qaHtml(q)}`).join("") || '<div class="empty">-</div>'}</div>
-  <div class="card tablewrap"><h2>정부 약속 추적표</h2><table class="t"><tr><th>일자</th><th>답변자</th><th>기관</th><th>내용</th></tr>${b.commitments.map(x => `<tr><td>${dot(x.date)}</td><td>${esc(x.speaker)}</td><td>${esc(x.org || "-")}</td><td>${esc(x.text)}</td></tr>`).join("")}</table></div>
-  <div class="grid g2"><div class="card"><h2>관심 위원</h2>${b.active_members.length ? barsHtml(b.active_members.map(m => ({name: m.name + " 위원", count: m.count}))) : "-"}</div>
-  <div class="card"><h2>관련 회의</h2>${b.meetings.map(m => `<div class="item" onclick="gotoMeeting('${esc(m.id)}')"><div class="d">${dot(m.date)}</div><div class="t">${esc(m.title)}</div></div>`).join("") || "-"}</div></div>`;
+    ${segTabs("bTabs", [["sum", "요약"], ["qa", `질의와 답변 ${b.top_questions.length}`], ["cm", `약속 추적 ${b.commitments.length}`], ["mt", `위원·회의 ${b.meetings.length}`]])}
+    <div class="segpanel on" data-seg="bTabs" data-k="sum">
+      <div class="grid g2">
+        <div><h3 style="margin-top:0">핵심 쟁점</h3>${b.key_issues.length ? barsHtml(b.key_issues.map(i => ({id: i.id, label: i.label, count: i.count})), {onclick: "gotoIssue"}) : "-"}</div>
+        <div><h3 style="margin-top:0">회기별 관련 발언</h3>${(b.by_session || []).length > 1 ? columns(b.by_session, {label: r => r.session, tip: r => `${esc(SESS[r.session]?.label || "제" + r.session + "회")} ${fmt(r.count)}건`}) : '<div class="muted">-</div>'}
+          ${b.keywords.length ? `<h3>키워드</h3>${chips(b.keywords.slice(0, 14), "line")}` : ""}</div>
+      </div>
+      <h3>주요 발언 <span class="muted" style="font-weight:400;font-size:12px">카드를 누르면 전체 문장</span></h3>
+      ${(b.key_point_items || []).length ? pointCards(b.key_point_items) : "<div class='muted'>-</div>"}
+    </div>
+    <div class="segpanel" data-seg="bTabs" data-k="qa">
+      ${moreList(b.top_questions.map(q => `<div class="chat-day"><span>${dot(q.date)} · <button class="link" onclick="gotoMeeting('${esc(q.meeting_id)}')">회의 보기</button></span></div>${qaHtml(q)}`), 5, "개 질의응답") || '<div class="empty">-</div>'}
+    </div>
+    <div class="segpanel" data-seg="bTabs" data-k="cm">
+      ${Object.keys(orgs).length ? `<div class="legend" style="margin-bottom:8px">${Object.entries(orgs).sort((a, b) => b[1].length - a[1].length).map(([o, xs]) => `<span><b>${esc(o)}</b> ${xs.length}건</span>`).join("")}</div>` : ""}
+      <div class="points">${moreList(b.commitments.map(x => `<div class="pt warn" onclick="this.classList.toggle('open')"><div class="who">${esc(x.speaker)}<span class="meta">${dot(x.date)}</span>${chips(x.issues)}</div><div class="txt">${esc(x.text)}</div></div>`), 8, "건", "points") || '<div class="empty">-</div>'}</div>
+    </div>
+    <div class="segpanel" data-seg="bTabs" data-k="mt">
+      <div class="grid g2">
+        <div><h3 style="margin-top:0">질의한 위원</h3>${b.active_members.length ? barsHtml(b.active_members.map(m => ({id: m.name, label: m.name + " 위원", count: m.count})), {onclick: "briefMember"}) : "-"}
+          <p class="muted" style="font-size:12px">위원 이름을 누르면 그 위원의 브리핑(질의 쟁점·질의응답·관련 회의)으로 바뀝니다.</p></div>
+        <div><h3 style="margin-top:0">관련 회의 <span class="muted" style="font-weight:400;font-size:12px">관련 발언 수</span></h3>
+          <div class="rowlist">${moreList(b.meetings.map(m => `<div class="r" onclick="gotoMeeting('${esc(m.id)}')"><span class="d">${dot(m.date)}</span><span>${esc(meetingShort(m))}</span><span class="n">${fmt(m.count || 0)}건</span></div>`), 10, "개 회의") || "-"}</div></div>
+      </div>
+    </div>
+  </div>`;
 };
 $("#bMd").onclick = async () => {
   const md = await api("/api/briefing?format=md&" + briefParams());
