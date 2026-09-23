@@ -134,7 +134,7 @@ def create_app(settings: Settings | None = None, store: Store | None = None) -> 
         if not store.meeting(meeting_id):
             raise HTTPException(404, "회의를 찾을 수 없습니다.")
         base = store.summary(meeting_id, "rule")
-        if base is None:
+        if base is None or "key_point_items" not in base:  # 없거나 이전 형식이면 새로 만든다
             base = analysis.summarize_meeting(store, meeting_id)
             if base["meeting"]["text_status"] == "parsed":
                 store.save_summary(meeting_id, "rule", base)

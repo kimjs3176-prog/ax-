@@ -7,7 +7,7 @@ from collections import Counter, defaultdict
 from typing import Any
 
 from .lexicon import ISSUES, ORGANIZATIONS, QUESTION_PATTERNS, commitment_sentences, issue_label
-from .nlp import SENT_SPLIT, extractive_summary, keywords, tokenize, truncate
+from .nlp import SENT_SPLIT, extractive_summary, keywords, split_sentences, tokenize, truncate
 from .store import Store
 
 # 짧은 맞장구·인사: '예, 그렇습니다', '수고하셨습니다' — 대화의 실질 내용이 아니다
@@ -24,6 +24,30 @@ def _substantive(u: dict, min_hangul: int = 20) -> bool:
 def _specific_promise(text: str) -> bool:
     """'지적하신 취지에 공감하고 시정하겠습니다'처럼 대상이 없는 약속은 제외(무엇을 할지 드러나는 약속만)."""
     return len([t for t in tokenize(text) if t not in _GENERIC_PROMISE]) >= 3
+
+
+def key_point_items(utts: list[dict], n: int) -> list[dict]:
+    """중요 문장 n개를 누가 한 말인지와 함께: 화면에서 발언자·쟁점을 붙인 카드로 보여 주기 위함."""
+    owner: dict[str, dict] = {}
+    for u in utts:
+        for sent in split_sentences(u["text"]):
+            owner.setdefault(sent, u)
+    out = []
+    # 발언이 문장부호 없이 끊겨도('제가 좀……') 다음 발언과 한 문장으로 붙지 않게 마침표를 둔다
+    joined = " ".join(u["text"] if u["text"].rstrip().endswith((".", "?", "!")) else u["text"] + "."
+                      for u in utts)
+    for sent in extractive_summary(joined, n):
+        # 문장 경계가 발언 경계와 어긋난 경우(앞 발언 끝과 이어져 잘림) 본문 포함 여부로 찾는다
+        u = owner.get(sent) or next((x for x in utts if sent[:40] in x["text"]), None) \
+            or next((x for x in utts if sent[:12] in x["text"]), None)
+        out.append({"text": sent,
+                    "speaker": (u["speaker_name"] + " 위원" if u["speaker_type"] == "member"
+                                else f"{u['speaker_role']} {u['speaker_name']}") if u else "",
+                    "speaker_type": u["speaker_type"] if u else "",
+                    "meeting_id": u["meeting_id"] if u else None,
+                    "date": u.get("meeting_date") if u else None,
+                    "issues": [issue_label(i) for i in (u["issues"] if u else {})][:2]})
+    return out
 
 
 def _issue_rank(utts: list[dict], top: int = 8) -> list[dict]:
@@ -140,6 +164,13 @@ def summarize_meeting(store: Store, meeting_id: str) -> dict[str, Any]:
         "keywords": [w for w, _ in keywords([full_text], 15, exclude=_names(utts))]
                     if full_text else [],
         "key_points": extractive_summary(full_text, 5) if full_text else [],
+        "key_point_items": key_point_items(substantive, 6) if full_text else [],
+        # 발언 구성(발언 수 기준): 위원 질의 / 정부·기관 답변 / 위원장 진행 / 기타(전문위원 등)
+        "composition": {k: sum(1 for u in utts if (u["speaker_type"] if u["speaker_type"] in
+                                                    ("member", "chair") else
+                                                    "gov" if u["speaker_type"] in ("official", "witness")
+                                                    else "other") == k)
+                        for k in ("member", "gov", "chair", "other")},
         "agenda_summaries": agenda_summaries,
         "qa_highlights": [_pair_view(p) for p in pairs[:8]],
         "commitments": [commitment_view(u) for u in utts if u["is_commitment"]],
@@ -199,6 +230,7 @@ def briefing(store: Store, org: str = "", issue: str = "", keyword: str = "",
     meetings_idx = {m["id"]: m for m in store.meetings(session=session)}
     meeting_list = sorted({u["meeting_id"] for u in selected},
                           key=lambda mid: meetings_idx[mid]["date"] or "", reverse=True)
+    per_meeting = Counter(u["meeting_id"] for u in selected)
     members = Counter(p["question"]["speaker_name"] for p in selected_pairs)
     pairs_sorted = sorted(selected_pairs, key=_pair_score, reverse=True)
     all_text = " ".join(u["text"] for u in selected)
@@ -215,6 +247,10 @@ def briefing(store: Store, org: str = "", issue: str = "", keyword: str = "",
         "keywords": [w for w, _ in keywords([all_text], 20, exclude=_names(utts))]
                     if all_text else [],
         "key_points": extractive_summary(all_text, 6) if all_text else [],
+        # 국감 준비에는 위원 질의·정부 답변이 핵심: 전문위원 보고보다 이들 발언에서 뽑는다
+        "key_point_items": key_point_items(
+            [u for u in selected if u["speaker_type"] in ("member", "official", "witness")]
+            or selected, 6) if all_text else [],
         "top_questions": [_pair_view(p) for p in pairs_sorted[:top]],
         # 추적표에는 무엇을 하겠다는지 드러나는 약속만('지적하신 취지에 공감합니다' 류 제외)
         "commitments": [v for v in (commitment_view(u) for u in
@@ -222,8 +258,10 @@ def briefing(store: Store, org: str = "", issue: str = "", keyword: str = "",
                         if _specific_promise(v["text"])],
         "active_members": [{"name": n, "count": c} for n, c in members.most_common(10)],
         "timeline": [{"date": d, "count": c} for d, c in sorted(timeline.items())],
-        "meetings": [{"id": mid, "date": meetings_idx[mid]["date"],
-                      "title": meetings_idx[mid]["title"]} for mid in meeting_list],
+        "by_session": [{"session": k, "count": v} for k, v in
+                       sorted(Counter(u["session_no"] for u in selected if u.get("session_no")).items())],
+        "meetings": [{"id": mid, "date": meetings_idx[mid]["date"], "session_no": meetings_idx[mid]["session_no"],
+                      "title": meetings_idx[mid]["title"], "count": per_meeting[mid]} for mid in meeting_list],
     }
 
 
