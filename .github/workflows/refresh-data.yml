@@ -47,7 +47,10 @@ jobs:
       # 배포 주소가 바뀌면 저장소 Variables에 MINUTES_PROXY 로 지정.
       AGRISEA_MINUTES_PROXY: ${{ vars.MINUTES_PROXY || 'https://ax-rosy-seven.vercel.app/api/minutes-text' }}
     steps:
+      # 이벤트 시점 커밋이 아니라 실행 시작 시점의 최신 브랜치를 받는다(앞선 실행이 커밋한 데이터를 이어받기 위함)
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -86,5 +89,6 @@ jobs:
           git add data/seed.sqlite3.gz data/seed.meta.json data/kg.nt.gz
           if git diff --cached --quiet; then echo "변경 없음"; exit 0; fi
           git commit -m "chore(data): 농해수위 회의록 자동 수집 반영"
-          git pull --rebase origin "${GITHUB_REF_NAME}"
+          # 그사이 다른 실행이 데이터를 커밋했으면, 방금 만든 데이터 파일을 우선해 다시 얹는다
+          git pull --rebase -X theirs origin "${GITHUB_REF_NAME}"
           git push origin "HEAD:${GITHUB_REF_NAME}"
