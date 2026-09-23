@@ -2,12 +2,28 @@
 from __future__ import annotations
 
 import json
+import re
 from collections import Counter, defaultdict
 from typing import Any
 
 from .lexicon import ISSUES, ORGANIZATIONS, QUESTION_PATTERNS, commitment_sentences, issue_label
-from .nlp import SENT_SPLIT, extractive_summary, keywords, truncate
+from .nlp import SENT_SPLIT, extractive_summary, keywords, tokenize, truncate
 from .store import Store
+
+# 짧은 맞장구·인사: '예, 그렇습니다', '수고하셨습니다' — 대화의 실질 내용이 아니다
+_HANGUL = re.compile(r"[가-힣]")
+# 약속 문장에서 대상 없이 쓰이는 말: 이 말만 있으면 '무엇을' 하겠다는지 알 수 없다
+_GENERIC_PROMISE = frozenset("""지적 취지 공감 시정 검토 말씀 위원님 위원장님 노력 적극 적극적 반영 추진 저희 저희들 부분 그런
+    같이 하겠습니다 드리겠습니다 도록 최선 잘 더 좀 해서 관련 사항 내용 의견 부탁 알겠습니다 그렇게 이런 우리""".split())
+
+
+def _substantive(u: dict, min_hangul: int = 20) -> bool:
+    return len(_HANGUL.findall(u["text"])) >= min_hangul
+
+
+def _specific_promise(text: str) -> bool:
+    """'지적하신 취지에 공감하고 시정하겠습니다'처럼 대상이 없는 약속은 제외(무엇을 할지 드러나는 약속만)."""
+    return len([t for t in tokenize(text) if t not in _GENERIC_PROMISE]) >= 3
 
 
 def _issue_rank(utts: list[dict], top: int = 8) -> list[dict]:
@@ -41,27 +57,37 @@ def qa_pairs(utts: list[dict]) -> list[dict]:
     return pairs
 
 
+def _main_answer(p: dict) -> dict | None:
+    """질의에 대한 대표 답변: '예, 그렇습니다' 같은 맞장구가 아닌 첫 실질 답변(약속이면 우선)."""
+    ans = p["answers"]
+    return (next((a for a in ans if a["is_commitment"]), None)
+            or next((a for a in ans if _substantive(a)), None)
+            or (ans[0] if ans else None))
+
+
 def _pair_view(p: dict) -> dict:
     q = p["question"]
-    ans = p["answers"]
+    a = _main_answer(p)
     return {
         "meeting_id": q["meeting_id"],
         "date": q.get("meeting_date"),
         "member": q["speaker_name"],
-        "question": " ".join(extractive_summary(q["text"], 2)) or truncate(q["text"], 200),
+        "question": _question_text(q["text"]),
         "question_full": q["text"],
-        "answerer": f"{ans[0]['speaker_role']} {ans[0]['speaker_name']}" if ans else None,
-        "answer": " ".join(extractive_summary(" ".join(a["text"] for a in ans), 2)) if ans else None,
-        "commitment": any(a["is_commitment"] for a in ans),
+        "answerer": f"{a['speaker_role']} {a['speaker_name']}" if a else None,
+        "answer": _answer_text(a) if a else None,
+        "commitment": any(x["is_commitment"] for x in p["answers"]),
         "issues": [issue_label(i) for i in q["issues"]],
     }
 
 
 def _pair_score(p: dict) -> float:
-    q = p["question"]
+    q, a = p["question"], _main_answer(p)
     return (len(q["issues"]) * 2 + len(q["orgs"]) + min(len(q["text"]) / 300, 3)
-            + (2 if any(a["is_commitment"] for a in p["answers"]) else 0)
-            + (1 if q["is_data_request"] else 0))
+            + (2 if any(x["is_commitment"] for x in p["answers"]) else 0)
+            + (1 if q["is_data_request"] else 0)
+            # 실질 답변이 없는 질의(답변 없음·'예' 한마디)는 주요 질의응답으로 뽑지 않는다
+            + (2 if a and _substantive(a) else -6))
 
 
 def commitment_view(u: dict) -> dict:
@@ -190,8 +216,10 @@ def briefing(store: Store, org: str = "", issue: str = "", keyword: str = "",
                     if all_text else [],
         "key_points": extractive_summary(all_text, 6) if all_text else [],
         "top_questions": [_pair_view(p) for p in pairs_sorted[:top]],
-        "commitments": [commitment_view(u) for u in
-                        sorted(commitments, key=lambda u: u["meeting_date"] or "", reverse=True)],
+        # 추적표에는 무엇을 하겠다는지 드러나는 약속만('지적하신 취지에 공감합니다' 류 제외)
+        "commitments": [v for v in (commitment_view(u) for u in
+                        sorted(commitments, key=lambda u: u["meeting_date"] or "", reverse=True))
+                        if _specific_promise(v["text"])],
         "active_members": [{"name": n, "count": c} for n, c in members.most_common(10)],
         "timeline": [{"date": d, "count": c} for d, c in sorted(timeline.items())],
         "meetings": [{"id": mid, "date": meetings_idx[mid]["date"],
@@ -401,7 +429,12 @@ def _exchange(store: Store, anchor: dict) -> list[dict]:
     # anchor 바로 앞의 위원 질의부터 최대 4개 발언(질의 → 답변 → 추가 질의 → 답변)
     at = next(i for i, u in enumerate(block) if u["id"] == anchor["id"])
     start = max(i for i in range(at + 1) if block[i]["speaker_type"] == "member")
-    return block[start:start + 4]
+    turns = block[start:start + 4]
+    # 끝에 붙은 맺음말('수고하셨습니다', '알겠습니다')은 뺀다
+    while len(turns) > 2 and turns[-1]["speaker_type"] == "member" and not (
+            turns[-1]["is_question"] or _substantive(turns[-1], 30)):
+        turns.pop()
+    return turns
 
 
 def _question_text(text: str) -> str:
@@ -422,7 +455,8 @@ def _answer_text(u: dict) -> str:
     head = sents[:2]
     text = " ".join(head)
     if u["is_commitment"]:
-        promise = [c for c in commitment_sentences(u["text"]) if c not in head][:1]
+        flat = re.sub(r"\s+", "", text)
+        promise = [c for c in commitment_sentences(u["text"]) if re.sub(r"\s+", "", c) not in flat][:1]
         if promise:
             text += " … " + promise[0]
     return truncate(text, 300)
@@ -435,7 +469,9 @@ def issue_dialogue(store: Store, questions: list[dict], commitments: list[dict],
     seen, found = set(), []
     for anchor in [*commitments, *questions]:
         turns = _exchange(store, anchor)
-        if not any(t["speaker_type"] in _ANSWERERS for t in turns):
+        # 정부 측의 실질 답변(또는 약속)이 없는 대화는 보여 줄 가치가 없다
+        if not any(t["speaker_type"] in _ANSWERERS and (t["is_commitment"] or _substantive(t))
+                   for t in turns):
             continue
         ids = {t["id"] for t in turns}
         if ids & seen:  # 같은 질의 순서에서 겹치는 대화는 한 번만
@@ -461,18 +497,47 @@ def issue_dialogue(store: Store, questions: list[dict], commitments: list[dict],
     return chosen
 
 
+def main_agendas(agendas: list[str]) -> list[str]:
+    """번호가 붙은 본 안건만('가. 농림축산식품부 소관' 같은 하위 항목 제외)."""
+    return [a for a in agendas if re.match(r"^\s*\d+\s*\.", a)] or agendas
+
+
+def agenda_headline(agendas: list[str]) -> str:
+    """회의의 대표 안건 한 줄: '2025회계연도 결산 외 7건'(번호·의안번호·발의자 표기는 뺀다)."""
+    main = main_agendas(agendas)
+    if not main:
+        return ""
+    first = re.sub(r"^\s*\d+\s*\.\s*", "", main[0])
+    first = re.sub(r"\((?:[^()]*의원[^()]*|의안번호[^()]*|[^()]*대표발의[^()]*)\)", "", first).strip()
+    return first + (f" 외 {len(main) - 1}건" if len(main) > 1 else "")
+
+
 def overview(store: Store, recent: int = 6) -> dict:
-    """대시보드용: 최근 회의(요약 한 줄·핵심 쟁점), 최근 정부 약속."""
+    """대시보드용: 최근 회의(대표 안건·핵심 쟁점), 최근 정부 약속(무엇을 하겠다는지 드러나는 것만, 질의 맥락 포함)."""
     out_m = []
     for m in store.meetings()[:recent]:
         s = store.summary(m["id"], "rule") or {}
         out_m.append({"id": m["id"], "date": m["date"], "title": m["title"],
                       "session_no": m["session_no"], "agendas": m["agendas"][:3],
-                      "n_agendas": len(m["agendas"]),
+                      "n_agendas": len(main_agendas(m["agendas"])),
                       "issues": [i["label"] for i in (s.get("key_issues") or [])[:3]],
-                      "headline": (s.get("key_points") or [""])[0]})
+                      "headline": agenda_headline(m["agendas"])})
     rows = store.conn.execute(
         "SELECT u.*, m.date AS meeting_date, m.title AS meeting_title, m.session_no AS session_no "
         "FROM utterances u JOIN meetings m ON m.id=u.meeting_id "
-        "WHERE u.is_commitment=1 ORDER BY m.date DESC, u.idx DESC LIMIT ?", (recent * 2,)).fetchall()
-    return {"meetings": out_m, "commitments": [commitment_view(store._utt(r)) for r in rows]}
+        "WHERE u.is_commitment=1 ORDER BY m.date DESC, u.idx DESC LIMIT 200").fetchall()
+    out_c = []
+    for r in rows:
+        u = store._utt(r)
+        view = commitment_view(u)
+        if not _specific_promise(view["text"]):
+            continue
+        q = next((x for x in reversed(_neighbors(store, u, before=6, after=0)[:-1])
+                  if x["speaker_type"] == "member"), None)
+        view["question"] = {"member": q["speaker_name"], "text": _question_text(q["text"])} if q else None
+        out_c.append(view)
+        if len(out_c) >= recent * 2:
+            break
+    return {"meetings": out_m, "commitments": out_c}
+
+

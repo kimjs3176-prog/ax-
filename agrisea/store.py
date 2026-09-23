@@ -236,9 +236,19 @@ class Store:
             sql += " AND m.date >= ?"; args.append(date_from)
         if date_to:
             sql += " AND m.date <= ?"; args.append(date_to)
+        # 넉넉히 가져와 관련도로 고른 뒤 최신순으로 보여 준다(위원장 사회 발언·짧은 언급보다
+        # 검색어를 여러 번 다룬 위원 질의와 정부 답변이 먼저 뽑히도록)
         sql += " ORDER BY m.date DESC, u.idx LIMIT ?"
-        args.append(limit)
-        return [self._utt(r) for r in self.conn.execute(sql, args)]
+        args.append(max(limit * 4, 200))
+        rows = [self._utt(r) for r in self.conn.execute(sql, args)]
+        weight = {"member": 1.0, "official": 0.9, "witness": 0.9, "reference": 0.8,
+                  "staff": 0.5, "chair": 0.3}
+
+        def score(u: dict) -> float:
+            hits = sum(u["text"].count(t) for t in terms)
+            return weight.get(u["speaker_type"], 0.6) * (min(hits, 5) + min(len(u["text"]) / 400, 1))
+        top = sorted(rows, key=score, reverse=True)[:limit]
+        return sorted(top, key=lambda u: (u["meeting_date"] or "", -u["idx"]), reverse=True)
 
     def kv_get(self, key: str) -> Any:
         r = self.conn.execute("SELECT value FROM kv WHERE key=?", (key,)).fetchone()
