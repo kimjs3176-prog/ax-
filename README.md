@@ -117,6 +117,10 @@ python -m agrisea ingest 회의록.pdf --title "제418회 국회(정기회) 제1
    또는 **Actions → 회의록 데이터 갱신 → Run workflow**). 이후에는 마지막 회의일 7일 전부터 이어서 수집합니다.
 3. 내용이 바뀐 날만 커밋되며, 화면 대시보드에 마지막 갱신 시각이 표시됩니다.
 
+회의록 PDF 서버(`record.assembly.go.kr`)는 해외 접속이 막혀 있어 GitHub Actions에서 직접 받을 수 없습니다.
+그래서 자동 수집은 서울 리전 배포본의 `/api/minutes-text?id=<회의번호>`를 거쳐 본문을 받습니다
+(국회 회의록 주소만 조회하도록 고정). 배포 주소가 바뀌면 저장소 **Variables**에 `MINUTES_PROXY`를 지정하세요.
+
 배포 환경(Vercel)은 `/tmp`만 쓸 수 있어 화면에서 직접 수집한 데이터는 서버가 재시작되면 사라집니다(확인·시연용).
 초기 데이터에는 전문검색 인덱스를 넣지 않고 압축하며, 배포 환경에서는 일반 문자열 검색을 씁니다.
 로컬 DB를 직접 올리려면 `python -m agrisea export-seed` 후 `data/seed.sqlite3.gz`, `data/seed.meta.json`을 커밋하세요.
@@ -168,6 +172,7 @@ python -m agrisea sample
 | GET | `/api/graph` | 쟁점–기관–위원 관계망 |
 | POST | `/api/sparql` `{"query": "..."}` | 읽기 전용 SPARQL(SERVICE/갱신 구문 차단) |
 | GET | `/api/ontology.ttl` | 지식그래프 전체(Turtle) |
+| GET | `/api/minutes-text?id=<회의번호>` | 국회 회의록 PDF 본문 텍스트(자동 수집용) |
 | POST | `/api/admin/collect` `{"dae","date"}` 또는 `{"dae","date_from","date_to"}` | 회의 목록 수집 |
 | POST | `/api/admin/fetch-minutes?limit=3` | 본문 미수집 회의를 limit건씩 처리, 남은 건수 반환 |
 | POST | `/api/admin/sample` | 가상 예시 데이터 적재 |

@@ -156,6 +156,26 @@ def download_minutes_text(url: str, dest_dir: Path, name: str,
     return html_to_text(text)
 
 
+RECORD_PDF_URL = "https://record.assembly.go.kr/assembly/viewer/minutes/download/pdf.do?id={id}"
+RECORD_ID_RE = re.compile(r"record\.assembly\.go\.kr/.*[?&]id=(\d{1,12})")
+
+
+def minutes_text(url: str, settings: Settings, name: str,
+                 http: requests.Session | None = None) -> str:
+    """회의록 본문 텍스트. 회의록 PDF 서버는 해외 접속이 막혀 있어, AGRISEA_MINUTES_PROXY가 있으면
+    국내 리전(Vercel icn1)의 /api/minutes-text 를 거쳐 받는다."""
+    import os
+
+    proxy = os.environ.get("AGRISEA_MINUTES_PROXY", "").strip()
+    m = RECORD_ID_RE.search(url)
+    if proxy and m:
+        http = http or requests.Session()
+        resp = http.get(proxy, params={"id": m.group(1)}, timeout=120)
+        resp.raise_for_status()
+        return resp.text
+    return download_minutes_text(url, settings.pdf_dir, name, http)
+
+
 def fetch_minutes(store: Store, settings: Settings, meeting_ids: list[str] | None = None,
                   limit: int | None = None, progress: Callable[[str], None] = print) -> int:
     retry = ("pending",) if limit else ("pending", "failed")  # 배치 모드에선 실패 건 무한 재시도 방지
@@ -172,7 +192,7 @@ def fetch_minutes(store: Store, settings: Settings, meeting_ids: list[str] | Non
             store.set_status(m["id"], "metadata_only")
             continue
         try:
-            text = download_minutes_text(url, settings.pdf_dir, m["id"], http)
+            text = minutes_text(url, settings, m["id"], http)
             doc = parse_minutes(text)
             store.save_minutes(m["id"], doc)
             ok += bool(doc.utterances)

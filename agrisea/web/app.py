@@ -199,6 +199,20 @@ def create_app(settings: Settings | None = None, store: Store | None = None) -> 
                 "edges": [{"source": a, "target": b, "weight": w}
                           for (a, b), w in edges.items() if w >= min_weight]}
 
+    @app.get("/api/minutes-text")
+    def minutes_text(id: str = Query(..., pattern=r"^\d{1,12}$")):
+        """국회 회의록 PDF(record.assembly.go.kr)를 받아 텍스트로 반환.
+
+        회의록 PDF 서버가 해외 접속을 막아 GitHub Actions 자동 수집이 이 엔드포인트(서울 리전)를 거친다.
+        고정된 국회 회의록 주소만 조회하므로 임의 URL 프록시로 쓰일 수 없다.
+        """
+        from ..pipeline import RECORD_PDF_URL, download_minutes_text
+        try:
+            text = download_minutes_text(RECORD_PDF_URL.format(id=id), settings.pdf_dir, id)
+        except Exception as e:
+            raise HTTPException(502, f"회의록을 가져오지 못했습니다: {e}") from e
+        return PlainTextResponse(text, media_type="text/plain; charset=utf-8")
+
     @app.get("/api/ontology.ttl")
     def ontology_ttl():
         return PlainTextResponse(graphs.get().serialize(format="turtle"),

@@ -84,3 +84,47 @@ def test_export_seed_roundtrip(tmp_path, monkeypatch):
     # 인덱스 없이 만든 DB를 FTS 모드로 열면 인덱스를 다시 채움
     restored.conn.close()
     assert Store(run.db_path, fts=True).search("시장격리")
+
+
+def test_minutes_text_endpoint_validates_id(store, settings, monkeypatch):
+    import agrisea.pipeline as pipeline
+    seen = {}
+
+    def fake_download(url, dest, name, http=None):
+        seen["url"] = url
+        return "◯위원장 홍길동 개의하겠습니다."
+
+    monkeypatch.setattr(pipeline, "download_minutes_text", fake_download)
+    c = TestClient(create_app(settings, store))
+    r = c.get("/api/minutes-text", params={"id": "52457"})
+    assert r.status_code == 200 and "홍길동" in r.text
+    assert seen["url"].endswith("pdf.do?id=52457") and "record.assembly.go.kr" in seen["url"]
+    assert c.get("/api/minutes-text", params={"id": "http://evil"}).status_code == 422
+
+
+def test_fetch_minutes_uses_proxy(settings, monkeypatch):
+    from agrisea import pipeline
+    from agrisea.store import Store
+
+    s = Store(":memory:")
+    s.upsert_meeting({"meeting_id": "52457", "title": "제22대 제418회 제4차 농림축산식품해양수산위원회",
+                      "date": "2024-10-07", "agendas": [],
+                      "pdf_url": "https://record.assembly.go.kr/assembly/viewer/minutes/download/pdf.do?id=52457"})
+    calls = []
+
+    class Resp:
+        text = "◯위원장 홍길동 개의하겠습니다.\n◯김가람 위원 쌀값 대책은 무엇입니까?"
+
+        def raise_for_status(self):
+            pass
+
+    class Http:
+        def get(self, url, params=None, timeout=None):
+            calls.append((url, params))
+            return Resp()
+
+    monkeypatch.setenv("AGRISEA_MINUTES_PROXY", "https://proxy.example/api/minutes-text")
+    monkeypatch.setattr(pipeline.requests, "Session", lambda: Http())
+    assert pipeline.fetch_minutes(s, settings, progress=lambda m: None) == 1
+    assert calls == [("https://proxy.example/api/minutes-text", {"id": "52457"})]
+    assert len(s.utterances(meeting_id="52457")) == 2

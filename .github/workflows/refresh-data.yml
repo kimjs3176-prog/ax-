@@ -36,6 +36,9 @@ jobs:
     env:
       ASSEMBLY_API_KEY: ${{ secrets.ASSEMBLY_API_KEY }}
       AGRISEA_DATA_DIR: ${{ github.workspace }}/var
+      # 회의록 PDF 서버는 해외(Actions) 접속이 막혀 있어 서울 리전 배포본을 거쳐 본문을 받는다.
+      # 배포 주소가 바뀌면 저장소 Variables에 MINUTES_PROXY 로 지정.
+      AGRISEA_MINUTES_PROXY: ${{ vars.MINUTES_PROXY || 'https://ax-rosy-seven.vercel.app/api/minutes-text' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
