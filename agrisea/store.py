@@ -27,7 +27,8 @@ CREATE TABLE IF NOT EXISTS utterances (
     idx INTEGER, speaker_name TEXT, speaker_role TEXT, speaker_type TEXT, org TEXT,
     agenda_idx INTEGER, text TEXT,
     is_question INTEGER, is_commitment INTEGER, is_data_request INTEGER,
-    issues_json TEXT, orgs_json TEXT
+    issues_json TEXT, orgs_json TEXT,
+    spacing INTEGER DEFAULT 0   -- 띄어쓰기 교정 규칙 버전(0: 교정 전)
 );
 CREATE INDEX IF NOT EXISTS ix_utt_meeting ON utterances(meeting_id, idx);
 CREATE INDEX IF NOT EXISTS ix_utt_speaker ON utterances(speaker_name);
@@ -49,6 +50,10 @@ END;
 CREATE TRIGGER IF NOT EXISTS utt_ad AFTER DELETE ON utterances BEGIN
     INSERT INTO utterances_fts(utterances_fts, rowid, text) VALUES('delete', old.id, old.text);
 END;
+CREATE TRIGGER IF NOT EXISTS utt_au AFTER UPDATE OF text ON utterances BEGIN
+    INSERT INTO utterances_fts(utterances_fts, rowid, text) VALUES('delete', old.id, old.text);
+    INSERT INTO utterances_fts(rowid, text) VALUES (new.id, new.text);
+END;
 """
 
 
@@ -61,6 +66,10 @@ class Store:
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA foreign_keys = ON")
         self.conn.executescript(SCHEMA)
+        cols = {r[1] for r in self.conn.execute("PRAGMA table_info(utterances)")}
+        if "spacing" not in cols:  # 이전 형식 DB
+            with self.conn:
+                self.conn.execute("ALTER TABLE utterances ADD COLUMN spacing INTEGER DEFAULT 0")
         self.fts = False
         if fts:
             existed = self.conn.execute(

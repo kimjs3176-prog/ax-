@@ -109,7 +109,7 @@ def export_seed(store: Store) -> dict:
         with conn:
             conn.execute("DELETE FROM meetings WHERE is_sample=1")
             conn.execute("DELETE FROM utterances WHERE meeting_id NOT IN (SELECT id FROM meetings)")
-            for name in ("utt_ai", "utt_ad"):
+            for name in ("utt_ai", "utt_ad", "utt_au"):
                 conn.execute(f"DROP TRIGGER IF EXISTS {name}")
             conn.execute("DROP TABLE IF EXISTS utterances_fts")
             conn.execute("UPDATE meetings SET raw_json=NULL")

@@ -28,6 +28,7 @@ on:
       - "agrisea/nlp.py"
       - "agrisea/analysis.py"
       - "agrisea/precompute.py"
+      - "agrisea/spacing.py"
 
 permissions:
   contents: write
