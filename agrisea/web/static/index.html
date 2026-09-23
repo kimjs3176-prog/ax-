@@ -51,7 +51,8 @@ nav{display:flex;gap:2px;flex-wrap:wrap;padding-bottom:8px}
 nav button{border:0;background:none;color:var(--muted);padding:6px 12px;border-radius:999px;cursor:pointer;font:inherit}
 nav button.on{background:var(--brand-weak);color:var(--brand);font-weight:700}
 nav button.adv{margin-left:auto}
-main{padding:18px 0 60px}
+main{padding:18px 0 24px}
+.site-footer{text-align:center;font-size:12px;color:var(--muted);border-top:1px solid var(--line);padding:18px 16px 28px}
 section{display:none} section.on{display:block}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;margin-bottom:14px;min-width:0}
 .grid{display:grid;gap:14px}
@@ -128,6 +129,9 @@ mark{background:var(--warn-weak);color:inherit;padding:0 2px;border-radius:3px}
 .bubble.q .who{color:var(--member)}
 .bubble.a{background:var(--gov-weak);margin-left:auto;border-top-right-radius:2px}
 .bubble.a .who{color:var(--gov)}
+.bubble.a.promise{background:var(--warn-weak);box-shadow:inset 3px 0 0 var(--warn)}
+.chat-day{display:flex;justify-content:center;margin:18px 0 4px}
+.chat-day span{font-size:12px;color:var(--muted);background:var(--bg);border:1px solid var(--line);border-radius:999px;padding:3px 12px}
 .quote{border-left:3px solid var(--line);padding:6px 12px;margin:8px 0;font-size:14px}
 .quote.member{border-color:var(--member)}
 .quote.gov{border-color:var(--gov)}
@@ -171,8 +175,8 @@ svg text{fill:var(--ink);font-size:11px}
     <nav id="tabs">
       <button data-tab="dash" class="on">대시보드</button>
       <button data-tab="meetings">회의록·요약</button>
-      <button data-tab="search">회의내용 검색</button>
       <button data-tab="issues">쟁점 온톨로지</button>
+      <button data-tab="search">회의내용 검색</button>
       <button data-tab="brief">국감 브리핑</button>
       <button data-tab="sparql" class="adv">SPARQL(고급)</button>
     </nav>
@@ -300,6 +304,7 @@ svg text{fill:var(--ink);font-size:11px}
   <div class="card tablewrap" id="sOut"></div>
 </section>
 </main>
+<footer class="site-footer">농해수위 국정감사 온톨로지 서비스 · 자료: 열린국회정보 위원회 회의록 · 제작자 kimjs1408</footer>
 
 <script>
 const $ = s => document.querySelector(s);
@@ -556,8 +561,13 @@ async function showIssue(id){
       <div class="card"><h2>관련 기관</h2><p class="sub">답변하거나 언급된 발언 수</p>${d.orgs.length ? barsHtml(d.orgs) : '<div class="empty">-</div>'}</div>
       <div class="card"><h2>질의한 위원</h2><p class="sub">이 쟁점을 언급한 발언 수</p>${d.members.length ? barsHtml(d.members.map(m => ({...m, name: m.name + " 위원"}))) : '<div class="empty">-</div>'}</div>
     </div>
-    <div class="card"><h2>대표 질의</h2>${d.questions.slice(0, 8).map(q => `<div class="quote member"><div class="who">${esc(q.speaker)} <span class="meta">· ${dot(q.date)} · 제${q.session}회 · <button class="link" onclick="gotoMeeting('${esc(q.meeting_id)}')">회의 보기</button></span></div>${esc(q.text)}</div>`).join("") || '<div class="empty">-</div>'}</div>
-    <div class="card"><h2>정부 약속</h2>${d.commitments.slice(0, 8).map(q => `<div class="quote warn"><div class="who">${esc(q.speaker)} <span class="meta">· ${dot(q.date)} · 제${q.session}회</span></div>${esc(q.text)}</div>`).join("") || '<div class="empty">-</div>'}</div>`;
+    <div class="card"><h2>질의와 정부 답변</h2><p class="sub">왼쪽은 위원 질의, 오른쪽은 정부 답변입니다(<span class="chip warn">약속</span> 표시는 구체적 조치 약속). 최근 회의 순.</p>
+      ${d.dialogue.map((t, i) => {
+        const head = i === 0 || d.dialogue[i - 1].meeting_id !== t.meeting_id;
+        return `${head ? `<div class="chat-day"><span>${dot(t.date)} · 제${t.session}회 · <button class="link" onclick="gotoMeeting('${esc(t.meeting_id)}')">회의 보기</button></span></div>` : ""}
+        <div class="qa">${t.question ? `<div class="bubble q"><div class="who">${esc(t.question.speaker)}</div>${esc(t.question.text)}</div>` : ""}
+        ${t.answer ? `<div class="bubble a${t.answer.commitment ? " promise" : ""}"><div class="who">${esc(t.answer.speaker)} ${t.answer.commitment ? '<span class="chip warn">약속</span>' : ""}</div>${esc(t.answer.text)}</div>` : ""}</div>`;
+      }).join("") || '<div class="empty">-</div>'}</div>`;
 }
 // ── 쟁점 신경망(3D): 위원(입력층) → 쟁점(은닉층) → 기관(출력층) ──
 const THREE_URL = "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
