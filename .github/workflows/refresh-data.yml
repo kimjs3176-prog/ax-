@@ -22,6 +22,12 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/refresh-data.yml"   # 이 워크플로가 처음 머지될 때 전체 수집 1회 실행
+      # 분석 규칙(발언자 분류·쟁점 사전·요약 등)이 바뀌면 저장된 데이터를 다시 계산해 반영
+      - "agrisea/lexicon.py"
+      - "agrisea/parser.py"
+      - "agrisea/nlp.py"
+      - "agrisea/analysis.py"
+      - "agrisea/precompute.py"
 
 permissions:
   contents: write
