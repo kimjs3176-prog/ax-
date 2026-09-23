@@ -1,0 +1,42 @@
+[
+  {
+    "file": "audit_mafra.txt",
+    "CONFER_NUM": "SAMPLE-2025-1014",
+    "TITLE": "[예시·가상] 제430회 국회(정기회) 제1차 농림축산식품해양수산위원회",
+    "COMM_NAME": "농림축산식품해양수산위원회",
+    "CONF_DATE": "2025-10-14",
+    "DAE_NUM": "22",
+    "CLASS_NAME": "국정감사",
+    "agendas": ["농림축산식품부에 대한 국정감사"]
+  },
+  {
+    "file": "audit_mof.txt",
+    "CONFER_NUM": "SAMPLE-2025-1020",
+    "TITLE": "[예시·가상] 제430회 국회(정기회) 제3차 농림축산식품해양수산위원회",
+    "COMM_NAME": "농림축산식품해양수산위원회",
+    "CONF_DATE": "2025-10-20",
+    "DAE_NUM": "22",
+    "CLASS_NAME": "국정감사",
+    "agendas": ["해양수산부에 대한 국정감사"]
+  },
+  {
+    "file": "audit_rda.txt",
+    "CONFER_NUM": "SAMPLE-2025-1024",
+    "TITLE": "[예시·가상] 제430회 국회(정기회) 제5차 농림축산식품해양수산위원회",
+    "COMM_NAME": "농림축산식품해양수산위원회",
+    "CONF_DATE": "2025-10-24",
+    "DAE_NUM": "22",
+    "CLASS_NAME": "국정감사",
+    "agendas": ["농촌진흥청에 대한 국정감사", "한국농업기술진흥원에 대한 국정감사", "농림식품기술기획평가원에 대한 국정감사"]
+  },
+  {
+    "file": "plenary_bills.txt",
+    "CONFER_NUM": "SAMPLE-2025-1105",
+    "TITLE": "[예시·가상] 제430회 국회(정기회) 제8차 농림축산식품해양수산위원회",
+    "COMM_NAME": "농림축산식품해양수산위원회",
+    "CONF_DATE": "2025-11-05",
+    "DAE_NUM": "22",
+    "CLASS_NAME": "상임위원회",
+    "agendas": []
+  }
+]
