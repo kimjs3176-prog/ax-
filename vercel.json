@@ -7,6 +7,5 @@
       "includeFiles": "{agrisea/**,ontology/**,data/**}",
       "excludeFiles": "{tests/**,var/**,**/__pycache__/**}"
     }
-  },
-  "rewrites": [{ "source": "/(.*)", "destination": "/api/index" }]
+  }
 }

@@ -10,6 +10,7 @@ on:
       - "vercel.json"
       - "api/**"
       - "requirements.txt"
+      - ".python-version"
 
 permissions:
   contents: read
@@ -46,14 +47,27 @@ jobs:
             > deployments.json
           jq -r '.deployments[] | [.uid, .state, (.target // "preview"), .url, (.meta.githubCommitRef // ""), (.created/1000|todate)] | @tsv' deployments.json
 
-      - name: 빌드 로그 (최근 production, 없으면 최근 배포)
+      - name: 이 커밋의 배포 완료 대기
+        env:
+          SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
-          UID_=$(jq -r '([.deployments[] | select(.target=="production")][0] // .deployments[0]).uid' deployments.json)
+          for i in $(seq 1 40); do
+            curl -sS -H "Authorization: Bearer $VERCEL_TOKEN" \
+              "https://api.vercel.com/v6/deployments?projectId=$PROJECT_ID&teamId=$TEAM_ID&limit=10" > deployments.json
+            STATE=$(jq -r --arg s "$SHA" '[.deployments[] | select(.meta.githubCommitSha==$s)][0].state // "NONE"' deployments.json)
+            echo "[$i] $SHA: $STATE"
+            case "$STATE" in READY|ERROR|CANCELED) break;; esac
+            sleep 10
+          done
+          jq -r --arg s "$SHA" '([.deployments[] | select(.meta.githubCommitSha==$s)][0] // .deployments[0]).uid' deployments.json > uid.txt
+
+      - name: 빌드 로그 (이 커밋의 배포)
+        run: |
+          UID_=$(cat uid.txt)
           echo "deployment: $UID_"
-          echo "$UID_" > uid.txt
           curl -sS -H "Authorization: Bearer $VERCEL_TOKEN" \
             "https://api.vercel.com/v3/deployments/$UID_/events?teamId=$TEAM_ID&builds=1&limit=-1" \
-          | jq -r '.[]? | select(.type=="stdout" or .type=="stderr" or .type=="command") | (.payload.text // .text // empty)' | tail -n 200
+          | jq -r '.[]? | select(.type=="stdout" or .type=="stderr" or .type=="command" or .type=="fatal") | (.payload.text // .text // empty)' | tail -n 200
 
       - name: 함수 목록
         run: |
@@ -70,7 +84,7 @@ jobs:
             "https://api.vercel.com/v9/projects/$PROJECT_ID?teamId=$TEAM_ID" | jq -r '.targets.production.alias[0] // empty')
           for host in "$PROD" "$URL"; do
             [ -z "$host" ] && continue
-            for path in / /api/stats; do
+            for path in / /api/health /api/stats; do
               echo "=== https://$host$path"
               curl -sS -m 30 -o body.txt -w "HTTP %{http_code}  %{time_total}s  %{content_type}\n" "https://$host$path" || true
               head -c 600 body.txt; echo
