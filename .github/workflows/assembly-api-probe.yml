@@ -18,28 +18,6 @@ jobs:
     env:
       KEY: ${{ secrets.ASSEMBLY_API_KEY }}
     steps:
-      - name: API 명세 페이지(요청인자·출력값)
-        run: |
-          curl -sS -m 30 -A "Mozilla/5.0" \
-            "https://open.assembly.go.kr/portal/data/service/selectAPIServicePage.do/OR137O001023MZ19321" -o spec.html || true
-          python3 - <<'PY'
-          import html, re
-          t = open("spec.html", encoding="utf-8", errors="ignore").read()
-          t = re.sub(r"(?is)<(script|style).*?</\1>", " ", t)
-          t = re.sub(r"(?i)</(tr|p|div|li|h\d)>|<br\s*/?>", "\n", t)
-          t = re.sub(r"(?i)</t[dh]>", " | ", t)
-          t = html.unescape(re.sub(r"<[^>]+>", " ", t))
-          lines = [re.sub(r"\s+", " ", l).strip() for l in t.splitlines()]
-          lines = [l for l in lines if l and l != "|"]
-          text = "\n".join(lines)
-          for kw in ("요청주소", "요청인자", "출력값"):
-              i = text.find(kw)
-              print(f"===== {kw} (위치 {i}) =====")
-              if i >= 0:
-                  print(text[i:i + 2500])
-          print("===== 전체 길이", len(text))
-          PY
-
       - name: 요청인자 조합별 호출
         run: |
           python3 - <<'PY'
@@ -47,18 +25,15 @@ jobs:
           key = os.environ.get("KEY", "")
           base = "https://open.assembly.go.kr/portal/openapi/ncwgseseafwbuheph"
           combos = [
-              {},
-              {"DAE_NUM": "22"},
-              {"CONF_DATE": "2024-10-07"},
-              {"DAE_NUM": "22", "CONF_DATE": "2024-10-07"},
-              {"DAE_NUM": "22", "CONF_DATE": "20241007"},
-              {"DAE_NUM": "22", "CONF_DATE": "2024"},
-              {"DAE_NUM": "22", "COMM_NAME": "농림축산식품해양수산위원회"},
-              {"DAE_NUM": "22", "CONF_DATE": "2024-10-07", "COMM_NAME": "농림축산식품해양수산위원회"},
+              {"DAE_NUM": "22", "CONF_DATE": "2024-10"},
+              {"DAE_NUM": "22", "CONF_DATE": "2024-10", "COMM_NAME": "농림축산식품해양수산위원회"},
+              {"DAE_NUM": "22", "CONF_DATE": "2024", "COMM_NAME": "농림축산식품해양수산위원회"},
+              {"DAE_NUM": "22", "CONF_DATE": "2024", "COMM_NAME": "농림축산식품해양수산"},
+              {"DAE_NUM": "22", "CONF_DATE": "2024", "COMM_NAME": "농림축산식품해양수산위원회 법안심사소위원회"},
           ]
           print("인증키 사용:", bool(key))
           for extra in combos:
-              q = {"Type": "json", "pIndex": 1, "pSize": 3, **extra}
+              q = {"Type": "json", "pIndex": 1, "pSize": 1000, **extra}
               if key:
                   q["KEY"] = key
               url = base + "?" + urllib.parse.urlencode(q)
@@ -75,7 +50,40 @@ jobs:
               head = blocks[0].get("head", [])
               rows = blocks[1].get("row", []) if len(blocks) > 1 else []
               print(f"--- {extra}: head={head}")
+              print(f"    받은 행 수(pSize=1000): {len(rows)}")
+              names = sorted({r.get("COMM_NAME") for r in rows})
+              print("    위원회명:", names[:15])
+              kinds = sorted({str(r.get("CLASS_NAME")) for r in rows})
+              print("    회의종류:", kinds)
               if rows:
-                  print("    필드:", list(rows[0].keys()))
-                  print("    예시:", json.dumps(rows[0], ensure_ascii=False)[:1200])
+                  print("    예시 제목:", [r.get("TITLE") for r in rows[:3]])
+          PY
+
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 실제 회의록 PDF 파싱 점검
+        run: |
+          pip install -q -r requirements.txt
+          python3 - <<'PY'
+          from collections import Counter
+          from agrisea.pipeline import download_minutes_text
+          from agrisea.parser import parse_minutes
+          from pathlib import Path
+          for mid in ("52457",):  # 제418회 제4차 농해수위(2024-10-07)
+              url = f"https://record.assembly.go.kr/assembly/viewer/minutes/download/pdf.do?id={mid}"
+              text = download_minutes_text(url, Path("pdf"), mid)
+              print(f"===== {mid}: 텍스트 {len(text)}자")
+              print(text[:1500])
+              print("..... 발언 표지(◯/○) 개수:", text.count("◯") + text.count("○"))
+              doc = parse_minutes(text)
+              print("안건:", doc.agendas)
+              print("발언 수:", len(doc.utterances))
+              print("발언자 유형:", Counter(u.speaker_type for u in doc.utterances))
+              print("발언자:", Counter(f"{u.speaker_role} {u.speaker_name}" for u in doc.utterances).most_common(15))
+              print("질의/이행약속/자료요구:", sum(u.is_question for u in doc.utterances),
+                    sum(u.is_commitment for u in doc.utterances), sum(u.is_data_request for u in doc.utterances))
+              for u in doc.utterances[:8]:
+                  print(f"  [{u.speaker_type}] {u.speaker_role} {u.speaker_name} (안건 {u.agenda_idx}): {u.text[:120]}")
           PY
