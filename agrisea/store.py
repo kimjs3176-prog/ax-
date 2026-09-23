@@ -31,6 +31,13 @@ CREATE TABLE IF NOT EXISTS utterances (
 );
 CREATE INDEX IF NOT EXISTS ix_utt_meeting ON utterances(meeting_id, idx);
 CREATE INDEX IF NOT EXISTS ix_utt_speaker ON utterances(speaker_name);
+CREATE TABLE IF NOT EXISTS summaries (
+    meeting_id TEXT, kind TEXT, payload TEXT, PRIMARY KEY (meeting_id, kind)
+);
+"""
+
+# 전문검색 인덱스(FTS5 trigram). 런타임 SQLite가 지원하지 않으면 LIKE 검색으로 대체한다.
+FTS_SCHEMA = """
 CREATE VIRTUAL TABLE IF NOT EXISTS utterances_fts USING fts5(
     text, content='utterances', content_rowid='id', tokenize='trigram'
 );
@@ -40,9 +47,6 @@ END;
 CREATE TRIGGER IF NOT EXISTS utt_ad AFTER DELETE ON utterances BEGIN
     INSERT INTO utterances_fts(utterances_fts, rowid, text) VALUES('delete', old.id, old.text);
 END;
-CREATE TABLE IF NOT EXISTS summaries (
-    meeting_id TEXT, kind TEXT, payload TEXT, PRIMARY KEY (meeting_id, kind)
-);
 """
 
 
@@ -55,6 +59,11 @@ class Store:
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA foreign_keys = ON")
         self.conn.executescript(SCHEMA)
+        try:
+            self.conn.executescript(FTS_SCHEMA)
+            self.fts = True
+        except sqlite3.OperationalError:
+            self.fts = False
 
     @contextmanager
     def tx(self) -> Iterator[sqlite3.Connection]:
@@ -180,6 +189,8 @@ class Store:
         sql = ("SELECT u.*, m.date AS meeting_date, m.title AS meeting_title "
                "FROM utterances u JOIN meetings m ON m.id = u.meeting_id WHERE 1=1")
         args: list[Any] = []
+        if not self.fts:
+            short_terms, long_terms = terms, []
         if long_terms:
             fts = " AND ".join('"' + t.replace('"', '""') + '"' for t in long_terms)
             sql += " AND u.id IN (SELECT rowid FROM utterances_fts WHERE utterances_fts MATCH ?)"

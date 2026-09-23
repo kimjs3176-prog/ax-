@@ -55,3 +55,19 @@ def test_vercel_entrypoint_uses_tmp_and_seed(tmp_path, monkeypatch):
     st = c.get("/api/stats").json()
     assert st["storage"] == "seed" and st["meetings"] == 4
     assert (tmp_path / "run" / "agrisea.sqlite3").exists()
+
+
+def test_health_endpoint(store, settings):
+    c = TestClient(create_app(settings, store))
+    h = c.get("/api/health").json()
+    assert h["ok"] and h["static_index"] and "sqlite" in h and h["fts"] in (True, False)
+
+
+def test_unwritable_data_dir_falls_back_to_memory(tmp_path):
+    blocker = tmp_path / "file"
+    blocker.write_text("x")  # 디렉터리 자리에 파일 → mkdir 실패
+    s = Settings(api_key="", data_dir=blocker / "sub", serverless=True)
+    c = TestClient(create_app(s))
+    h = c.get("/api/health").json()
+    assert not h["ok"] and h["storage"] == "memory" and h["startup_error"]
+    assert c.get("/").status_code == 200

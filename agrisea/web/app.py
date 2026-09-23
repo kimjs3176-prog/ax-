@@ -44,11 +44,17 @@ class GraphCache:
 def create_app(settings: Settings | None = None, store: Store | None = None) -> FastAPI:
     settings = settings or get_settings()
     storage = "memory"
+    startup_error = ""
     if store is None:
         from ..pipeline import seed_store
-        storage = "seed" if seed_store(settings) else "local"
-        settings.ensure_dirs()
-        store = Store(settings.db_path)
+        try:
+            storage = "seed" if seed_store(settings) else "local"
+            settings.ensure_dirs()
+            store = Store(settings.db_path)
+        except Exception as e:  # 저장소를 못 열어도 화면·진단은 뜨도록 메모리 DB로 대체
+            startup_error = f"{type(e).__name__}: {e}"
+            storage = "memory"
+            store = Store(":memory:")
     if settings.serverless and storage != "memory":
         storage = "seed" if storage == "seed" else "ephemeral"
 
@@ -67,6 +73,25 @@ def create_app(settings: Settings | None = None, store: Store | None = None) -> 
     @app.get("/", include_in_schema=False)
     def index():
         return FileResponse(STATIC / "index.html")
+
+    @app.get("/api/health")
+    def health():
+        import platform
+        import sqlite3
+        return {
+            "ok": not startup_error,
+            "startup_error": startup_error,
+            "python": platform.python_version(),
+            "sqlite": sqlite3.sqlite_version,
+            "fts": store.fts,
+            "storage": storage,
+            "serverless": settings.serverless,
+            "data_dir": str(settings.data_dir),
+            "static_index": (STATIC / "index.html").exists(),
+            "api_key_configured": bool(settings.api_key),
+            "admin_token_configured": bool(settings.admin_token),
+            "llm_enabled": settings.llm_enabled,
+        }
 
     @app.get("/api/stats")
     def stats():

@@ -1,0 +1,99 @@
+# Vercel 배포 진단: 프로젝트 설정, 최근 배포, 빌드/런타임 로그, 페이지 응답을 Actions 로그로 출력한다.
+# 저장소 Settings > Secrets and variables > Actions 에 VERCEL_TOKEN 을 등록해야 한다.
+name: Vercel 배포 진단
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/vercel-diagnose.yml"
+      - "vercel.json"
+      - "api/**"
+      - "requirements.txt"
+      - ".python-version"
+
+permissions:
+  contents: read
+
+env:
+  TEAM_ID: team_HLyNvVERK3RDqp7W1YHWoYCP
+  PROJECT_ID: prj_OUaoYl9MUChZ4MGAL4RxIH8U61hz
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+    steps:
+      - name: 토큰 확인
+        run: |
+          if [ -z "$VERCEL_TOKEN" ]; then echo "::error::VERCEL_TOKEN secret이 없습니다."; exit 1; fi
+
+      - name: 프로젝트 설정
+        run: |
+          curl -sS -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v9/projects/$PROJECT_ID?teamId=$TEAM_ID" \
+          | jq '{name, framework, rootDirectory, buildCommand, installCommand, outputDirectory,
+                 devCommand, nodeVersion, serverlessFunctionRegion,
+                 ssoProtection, passwordProtection,
+                 productionBranch: .link.productionBranch,
+                 domains: [.alias[]?.domain], targets: (.targets | map_values({alias, url}))}'
+
+      - name: 최근 배포
+        run: |
+          curl -sS -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v6/deployments?projectId=$PROJECT_ID&teamId=$TEAM_ID&limit=6" \
+            > deployments.json
+          jq -r '.deployments[] | [.uid, .state, (.target // "preview"), .url, (.meta.githubCommitRef // ""), (.created/1000|todate)] | @tsv' deployments.json
+
+      - name: 이 커밋의 배포 완료 대기
+        env:
+          SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          for i in $(seq 1 40); do
+            curl -sS -H "Authorization: Bearer $VERCEL_TOKEN" \
+              "https://api.vercel.com/v6/deployments?projectId=$PROJECT_ID&teamId=$TEAM_ID&limit=10" > deployments.json
+            STATE=$(jq -r --arg s "$SHA" '[.deployments[] | select(.meta.githubCommitSha==$s)][0].state // "NONE"' deployments.json)
+            echo "[$i] $SHA: $STATE"
+            case "$STATE" in READY|ERROR|CANCELED) break;; esac
+            sleep 10
+          done
+          jq -r --arg s "$SHA" '([.deployments[] | select(.meta.githubCommitSha==$s)][0] // .deployments[0]).uid' deployments.json > uid.txt
+
+      - name: 빌드 로그 (이 커밋의 배포)
+        run: |
+          UID_=$(cat uid.txt)
+          echo "deployment: $UID_"
+          curl -sS -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v3/deployments/$UID_/events?teamId=$TEAM_ID&builds=1&limit=-1" \
+          | jq -r '.[]? | select(.type=="stdout" or .type=="stderr" or .type=="command" or .type=="fatal") | (.payload.text // .text // empty)' | tail -n 200
+
+      - name: 함수 목록
+        run: |
+          UID_=$(cat uid.txt)
+          curl -sS -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v13/deployments/$UID_?teamId=$TEAM_ID" \
+          | jq '{url, readyState, regions, routes: (.routes // [] | length), lambdas: [.lambdas[]? | {entrypoint, readyState, output: [.output[]?.path]}]}'
+
+      - name: 페이지 응답
+        run: |
+          UID_=$(cat uid.txt)
+          URL=$(jq -r --arg u "$UID_" '.deployments[] | select(.uid==$u) | .url' deployments.json)
+          PROD=$(curl -sS -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v9/projects/$PROJECT_ID?teamId=$TEAM_ID" | jq -r '.targets.production.alias[0] // empty')
+          for host in "$PROD" "$URL"; do
+            [ -z "$host" ] && continue
+            for path in / /api/health /api/stats; do
+              echo "=== https://$host$path"
+              curl -sS -m 30 -o body.txt -w "HTTP %{http_code}  %{time_total}s  %{content_type}\n" "https://$host$path" || true
+              head -c 600 body.txt; echo
+            done
+          done
+
+      - name: 런타임 로그(최근)
+        run: |
+          UID_=$(cat uid.txt)
+          timeout 25 curl -sS -N -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v1/projects/$PROJECT_ID/deployments/$UID_/runtime-logs?teamId=$TEAM_ID" \
+          | head -c 20000 || true

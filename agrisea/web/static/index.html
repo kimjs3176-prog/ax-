@@ -193,7 +193,7 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 async function api(path, opt){
   const r = await fetch(path, opt);
-  if(!r.ok){ let m = r.statusText; try{ m = (await r.json()).detail || m }catch(e){}; throw new Error(m) }
+  if(!r.ok){ let m = `HTTP ${r.status} ${r.statusText}`; try{ const j = await r.json(); m = j.detail || j.error || m }catch(e){}; throw new Error(m) }
   return r.headers.get("content-type")?.includes("json") ? r.json() : r.text();
 }
 const chips = (arr, cls="") => (arr||[]).map(x => `<span class="chip ${cls}">${esc(x)}</span>`).join("");
@@ -223,7 +223,12 @@ document.querySelectorAll("#tabs button").forEach(b => b.onclick = () => {
 
 // 대시보드
 async function loadDash(){
-  const s = await api("/api/stats");
+  let s;
+  try{ s = await api("/api/stats") }
+  catch(e){
+    $("#sampleNotice").innerHTML = `<div class="notice">서버 응답 오류: ${esc(e.message)} — <a href="/api/health" target="_blank">/api/health</a>에서 상태를 확인하세요.</div>`;
+    return;
+  }
   $("#storageNotice").innerHTML = s.storage==="ephemeral" || s.storage==="seed"
     ? `<div class="notice">배포(서버리스) 환경입니다. 여기서 수집한 데이터는 임시 저장소(/tmp)에 쌓여 인스턴스가 재시작되면 사라집니다${s.storage==="seed"?" (저장소의 초기 데이터 data/seed.sqlite3는 유지)":""}. 영구 반영은 GitHub Actions 「회의록 데이터 갱신」 워크플로를 사용하세요.</div>` : "";
   $("#adminToken").style.display = s.admin_required ? "" : "none";
