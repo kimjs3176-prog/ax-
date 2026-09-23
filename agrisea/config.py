@@ -51,8 +51,6 @@ class Settings:
     api_key: str = field(default_factory=lambda: os.environ.get("ASSEMBLY_API_KEY", ""))
     api_url: str = field(default_factory=lambda: os.environ.get("ASSEMBLY_API_URL", API_URL))
     data_dir: Path = field(default_factory=_default_data_dir)
-    # 수집·적재 등 관리 기능 보호용 토큰. 서버리스(공개 URL)에서는 설정하지 않으면 관리 기능이 꺼진다.
-    admin_token: str = field(default_factory=lambda: os.environ.get("ADMIN_TOKEN", ""))
     serverless: bool = IS_SERVERLESS
     llm_model: str = field(
         default_factory=lambda: os.environ.get("AGRISEA_LLM_MODEL", "claude-opus-5")

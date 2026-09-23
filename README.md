@@ -98,13 +98,13 @@ python -m agrisea ingest 회의록.pdf --title "제418회 국회(정기회) 제1
    | 이름 | 필수 | 설명 |
    |---|---|---|
    | `ASSEMBLY_API_KEY` | 예 | 열린국회정보 인증키 |
-   | `ADMIN_TOKEN` | 예 | 수집·적재 기능 보호용 임의 문자열(길게). 없으면 배포 환경에서 관리 기능이 꺼짐 |
    | `ANTHROPIC_API_KEY` | 아니오 | Claude 심층 요약 사용 시 |
    | `AGRISEA_LLM_MODEL` | 아니오 | 기본 `claude-opus-5` |
 
 3. **Deploy**. 이후 `main`에 푸시할 때마다 자동 배포됩니다.
 
-배포 후 대시보드 「데이터 수집」에서 관리자 토큰을 넣고 회의일자(또는 31일 이내 기간)를 지정해 수집합니다.
+배포 후 대시보드 「데이터 수집」에서 회의일자(또는 31일 이내 기간)를 지정해 수집합니다.
+수집 기능에는 별도 인증이 없어 URL을 아는 누구나 실행할 수 있습니다(인증키 사용량이 소모될 수 있음).
 인증키는 서버(함수)에서만 쓰이고 브라우저로 전달되지 않으며, 오류 메시지에서도 `KEY=***`로 가려집니다.
 
 **서버리스 저장소 주의**: Vercel 함수는 `/tmp`만 쓸 수 있고 인스턴스가 바뀌면 초기화됩니다. 그래서 두 가지 경로를 둡니다.
@@ -126,8 +126,7 @@ python -m agrisea serve --port 8000     # http://127.0.0.1:8000
 ```
 
 탭 구성: 대시보드 · 회의내용 검색 · 회의록·요약 · 쟁점 온톨로지 · 국감 브리핑 · SPARQL.
-대시보드에서 바로 API 수집도 실행할 수 있습니다. 수집·적재용 `/api/admin/*` 엔드포인트는 `ADMIN_TOKEN`을 설정하면
-`X-Admin-Token` 헤더가 일치해야 동작합니다(로컬에서는 미설정 시 개방, 배포 환경에서는 미설정 시 차단).
+대시보드에서 바로 API 수집도 실행할 수 있습니다(`/api/admin/*`, 별도 인증 없음).
 
 ### 4) CLI
 
@@ -164,9 +163,9 @@ python -m agrisea sample
 | GET | `/api/graph` | 쟁점–기관–위원 관계망 |
 | POST | `/api/sparql` `{"query": "..."}` | 읽기 전용 SPARQL(SERVICE/갱신 구문 차단) |
 | GET | `/api/ontology.ttl` | 지식그래프 전체(Turtle) |
-| POST | `/api/admin/collect` `{"dae","date"}` 또는 `{"dae","date_from","date_to"}` | 회의 목록 수집(관리자 토큰) |
-| POST | `/api/admin/fetch-minutes?limit=3` | 본문 미수집 회의를 limit건씩 처리, 남은 건수 반환(관리자 토큰) |
-| POST | `/api/admin/sample` | 가상 예시 데이터 적재(관리자 토큰) |
+| POST | `/api/admin/collect` `{"dae","date"}` 또는 `{"dae","date_from","date_to"}` | 회의 목록 수집 |
+| POST | `/api/admin/fetch-minutes?limit=3` | 본문 미수집 회의를 limit건씩 처리, 남은 건수 반환 |
+| POST | `/api/admin/sample` | 가상 예시 데이터 적재 |
 
 ## 테스트
 
