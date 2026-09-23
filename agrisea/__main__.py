@@ -45,6 +45,8 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("--from", dest="date_from", help="기간 수집 시작일(일자별로 API 호출)")
     c.add_argument("--to", dest="date_to", help="기간 수집 종료일(기본: 오늘)")
     c.add_argument("--days", type=int, help="오늘 기준 최근 N일 수집(--from 대신)")
+    c.add_argument("--resume", action="store_true",
+                   help="저장된 마지막 회의일 7일 전부터 오늘까지 수집(데이터가 없으면 22대 임기 시작일부터)")
     c.add_argument("--param", action="append", help="추가 요청인자 KEY=VALUE (반복 가능)")
     c.add_argument("--all-committees", action="store_true", help="농해수위 외 위원회도 저장")
     c.add_argument("--fetch", action="store_true", help="수집 후 회의록 본문까지 내려받기")
@@ -106,9 +108,15 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "collect":
         from datetime import date, timedelta
 
+        from .config import TERM_START
         from .pipeline import collect, collect_range, fetch_minutes, rebuild_graph
         params = {"DAE_NUM": args.dae, **_kv(args.param)}
-        if args.days:
+        if args.resume:
+            last = store.stats()["date_max"]
+            args.date_from = ((date.fromisoformat(last) - timedelta(days=7)).isoformat()
+                              if last else TERM_START)
+            print(f"수집 기간: {args.date_from} ~ {args.date_to or date.today().isoformat()}")
+        elif args.days:
             args.date_from = (date.today() - timedelta(days=args.days)).isoformat()
         if args.date_from:
             meetings = collect_range(store, settings, args.date_from,
@@ -118,7 +126,10 @@ def main(argv: list[str] | None = None) -> int:
             meetings = collect(store, settings, {**params, "CONF_DATE": args.date},
                                only_target=not args.all_committees)
         if args.fetch:
-            fetch_minutes(store, settings, [m["meeting_id"] for m in meetings])
+            parsed = {m["id"] for m in store.meetings(status="parsed")}
+            todo = [m["meeting_id"] for m in meetings if m["meeting_id"] not in parsed]
+            if todo:
+                fetch_minutes(store, settings, todo)
         rebuild_graph(store, settings)
     elif args.cmd == "fetch-minutes":
         from .pipeline import fetch_minutes, rebuild_graph
@@ -139,20 +150,11 @@ def main(argv: list[str] | None = None) -> int:
         g = rebuild_graph(store, settings)
         print(f"가상 예시 회의록 적재: 발언 {n}건, 트리플 {len(g)}개 → {settings.graph_path}")
     elif args.cmd == "export-seed":
-        import sqlite3
-
         from .config import SEED_DB
-        SEED_DB.parent.mkdir(parents=True, exist_ok=True)
-        SEED_DB.unlink(missing_ok=True)
-        with sqlite3.connect(SEED_DB) as dst:
-            store.conn.backup(dst)
-        seed = Store(SEED_DB)
-        with seed.tx() as c:
-            c.execute("DELETE FROM meetings WHERE is_sample=1")
-        seed.conn.execute("VACUUM")
-        print(json.dumps(seed.stats(), ensure_ascii=False))
-        seed.conn.close()
-        print(f"저장: {SEED_DB}")
+        from .pipeline import export_seed
+        meta = export_seed(store)
+        print(json.dumps(meta, ensure_ascii=False, indent=2))
+        print(f"{'저장' if meta['changed'] else '변경 없음'}: {SEED_DB}")
     elif args.cmd == "build":
         from .pipeline import rebuild_graph
         g = rebuild_graph(store, settings)

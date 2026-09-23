@@ -1,27 +1,26 @@
-# 회의록 데이터 갱신: 열린국회정보 API로 농해수위 회의록을 수집해 data/seed.sqlite3로 커밋한다.
-# 커밋되면 Vercel이 새로 배포하면서 이 데이터를 초기 데이터로 사용한다.
+# 회의록 자동 수집: 열린국회정보 API로 농해수위 회의록을 모아 data/seed.sqlite3.gz 로 커밋한다.
+# 커밋되면 Vercel이 새로 배포하면서 이 데이터를 싣는다(배포 환경의 저장소는 임시라서 이 방식으로 영구 보관).
+#  - 매일 06:00(KST) 실행: 저장된 마지막 회의일 7일 전부터 오늘까지 수집
+#  - 초기 데이터가 없으면 22대 임기 시작일(2024-05-30)부터 전체 수집
+#  - 내용이 바뀌었을 때만 커밋
 # 저장소 Settings > Secrets and variables > Actions 에 ASSEMBLY_API_KEY 를 등록해야 한다.
 name: 회의록 데이터 갱신
 
 on:
+  schedule:
+    - cron: "0 21 * * *"   # 매일 06:00 KST
   workflow_dispatch:
     inputs:
       date_from:
-        description: "수집 시작일(YYYY-MM-DD). 비우면 최근 N일"
+        description: "수집 시작일(YYYY-MM-DD). 비우면 자동(마지막 회의일 7일 전부터)"
         required: false
       date_to:
         description: "수집 종료일(YYYY-MM-DD). 비우면 오늘"
         required: false
-      days:
-        description: "최근 N일(시작일을 비웠을 때)"
-        required: false
-        default: "14"
-      dae:
-        description: "국회 대수"
-        required: false
-        default: "22"
-  schedule:
-    - cron: "0 21 * * 0"   # 매주 월요일 06:00 KST
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/refresh-data.yml"   # 이 워크플로가 처음 머지될 때 전체 수집 1회 실행
 
 permissions:
   contents: write
@@ -33,7 +32,7 @@ concurrency:
 jobs:
   refresh:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 180
     env:
       ASSEMBLY_API_KEY: ${{ secrets.ASSEMBLY_API_KEY }}
       AGRISEA_DATA_DIR: ${{ github.workspace }}/var
@@ -44,32 +43,38 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: pip install -r requirements.txt
+
       - name: 기존 데이터 불러오기
         run: |
           mkdir -p var
-          if [ -f data/seed.sqlite3 ]; then cp data/seed.sqlite3 var/agrisea.sqlite3; fi
+          if [ -f data/seed.sqlite3.gz ]; then gunzip -c data/seed.sqlite3.gz > var/agrisea.sqlite3; fi
+          python -m agrisea stats
+
       - name: 수집
         env:
           DATE_FROM: ${{ inputs.date_from }}
           DATE_TO: ${{ inputs.date_to }}
-          DAYS: ${{ inputs.days || '14' }}
-          DAE: ${{ inputs.dae || '22' }}
         run: |
           if [ -z "$ASSEMBLY_API_KEY" ]; then echo "::error::ASSEMBLY_API_KEY secret이 없습니다."; exit 1; fi
           if [ -n "$DATE_FROM" ]; then
-            python -m agrisea collect --dae "$DAE" --from "$DATE_FROM" ${DATE_TO:+--to "$DATE_TO"} --fetch
+            python -m agrisea collect --from "$DATE_FROM" ${DATE_TO:+--to "$DATE_TO"} --fetch
           else
-            python -m agrisea collect --dae "$DAE" --days "$DAYS" --fetch
+            python -m agrisea collect --resume ${DATE_TO:+--to "$DATE_TO"} --fetch
           fi
-          python -m agrisea fetch-minutes
+          python -m agrisea fetch-minutes   # 이전에 실패한 본문 재시도
           python -m agrisea stats
+
       - name: 초기 데이터 내보내기
-        run: python -m agrisea export-seed
+        run: |
+          python -m agrisea export-seed
+          ls -la data/
+
       - name: 커밋
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/seed.sqlite3
+          git add data/seed.sqlite3.gz data/seed.meta.json
           if git diff --cached --quiet; then echo "변경 없음"; exit 0; fi
-          git commit -m "chore(data): 농해수위 회의록 데이터 갱신"
-          git push
+          git commit -m "chore(data): 농해수위 회의록 자동 수집 반영"
+          git pull --rebase origin "${GITHUB_REF_NAME}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"

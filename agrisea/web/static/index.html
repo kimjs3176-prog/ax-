@@ -229,7 +229,7 @@ async function loadDash(){
     return;
   }
   $("#storageNotice").innerHTML = s.storage==="ephemeral" || s.storage==="seed"
-    ? `<div class="notice">배포(서버리스) 환경입니다. 여기서 수집한 데이터는 임시 저장소(/tmp)에 쌓여 인스턴스가 재시작되면 사라집니다${s.storage==="seed"?" (저장소의 초기 데이터 data/seed.sqlite3는 유지)":""}. 영구 반영은 GitHub Actions 「회의록 데이터 갱신」 워크플로를 사용하세요.</div>` : "";
+    ? `<div class="notice">회의록은 매일 06시(KST) GitHub Actions가 자동 수집해 반영합니다${s.data_updated?` (마지막 갱신 ${esc(s.data_updated.replace("T"," ").slice(0,16))} UTC)`:" (아직 자동 수집 데이터 없음)"}. 아래에서 직접 수집한 데이터는 임시 저장소에 쌓여 서버가 재시작되면 사라집니다.</div>` : "";
   $("#sampleNotice").innerHTML = s.samples ? `<div class="notice">현재 가상 예시 회의록 ${s.samples}건이 포함되어 있습니다. 실제 분석에는 API 수집 데이터를 사용하세요.</div>` : "";
   const items = [["회의",s.meetings],["본문 파싱",s.parsed],["발언",s.utterances],["위원 질의",s.questions],["이행약속 답변",s.commitments]];
   $("#stats").innerHTML = items.map(([k,v]) => `<div class="card stat"><b>${(v??0).toLocaleString()}</b><span>${k}</span></div>`).join("")
@@ -245,6 +245,7 @@ $("#colBtn").onclick = async () => {
   $("#colLog").textContent = ""; log("목록 수집 중…");
   try{
     const from = $("#colFrom").value.trim(), to = $("#colTo").value.trim();
+    if(!from){ log("회의일자를 입력하세요. 예: 2026-09-01 (종료일까지 넣으면 기간 수집, 최대 31일)"); return; }
     const body = {dae:$("#colDae").value, date: from || null};
     if(from && to) Object.assign(body, {date_from: from, date_to: to});
     const r = await api("/api/admin/collect", {method:"POST", headers:{"content-type":"application/json"}, body: JSON.stringify(body)});

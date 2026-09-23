@@ -36,8 +36,11 @@ _load_dotenv(ROOT / ".env")
 
 # Vercel 등 서버리스 환경: 배포 번들은 읽기 전용이고 /tmp만 쓸 수 있다.
 IS_SERVERLESS = bool(os.environ.get("VERCEL") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME"))
-# GitHub Actions 등으로 미리 수집해 저장소에 커밋해 둔 초기 데이터(있으면 기동 시 복사)
-SEED_DB = ROOT / "data" / "seed.sqlite3"
+# GitHub Actions 「회의록 데이터 갱신」이 수집해 커밋하는 초기 데이터(있으면 기동 시 풀어서 사용)
+SEED_DB = ROOT / "data" / "seed.sqlite3.gz"
+SEED_META = ROOT / "data" / "seed.meta.json"
+# 22대 국회 임기 시작일: 초기 데이터가 없을 때 자동 수집의 시작점
+TERM_START = "2024-05-30"
 
 
 def _default_data_dir() -> Path:

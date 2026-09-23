@@ -69,6 +69,21 @@ def normalize_date(value: str) -> str:
     return value or ""
 
 
+def normalize_conf_date(value: str) -> str:
+    """요청인자 CONF_DATE 정규화. API는 'YYYY', 'YYYY-MM', 'YYYY-MM-DD'(접두 일치)만 받는다
+    ('20241007'처럼 구분자 없는 형식은 결과가 비어 있음)."""
+    v = (value or "").strip()
+    parts = re.split(r"[.\-/\s]+", v) if re.search(r"[.\-/\s]", v) else None
+    if parts is None:
+        if not v.isdigit() or len(v) not in (4, 6, 8):
+            raise ValueError(f"회의일자 형식 오류: {value!r} (예: 2024, 2024-10, 2024-10-07)")
+        parts = [v[:4], v[4:6], v[6:8]][: {4: 1, 6: 2, 8: 3}[len(v)]]
+    parts = [p for p in parts if p]
+    if not 1 <= len(parts) <= 3 or not all(p.isdigit() for p in parts) or len(parts[0]) != 4:
+        raise ValueError(f"회의일자 형식 오류: {value!r} (예: 2024, 2024-10, 2024-10-07)")
+    return "-".join([parts[0]] + [p.zfill(2) for p in parts[1:]])
+
+
 def normalize_row(row: dict[str, Any]) -> dict[str, Any]:
     out = {k: _pick(row, keys) for k, keys in FIELD_ALIASES.items()}
     out["date"] = normalize_date(out["date"])
@@ -91,26 +106,32 @@ def is_target_committee(row: dict[str, Any], aliases: tuple[str, ...] = COMMITTE
 
 class AssemblyClient:
     def __init__(self, settings: Settings, session: requests.Session | None = None,
-                 timeout: float = 30.0, sleep: float = 0.2):
+                 timeout: float = 30.0, sleep: float = 0.2, retries: int = 2):
         if not settings.api_key:
             raise ValueError("ASSEMBLY_API_KEY 환경변수(또는 .env)에 인증키를 설정하세요.")
         self.settings = settings
         self.http = session or requests.Session()
         self.timeout = timeout
         self.sleep = sleep
+        self.retries = retries
         self.service = settings.api_url.rstrip("/").rsplit("/", 1)[-1]
 
     def fetch_page(self, p_index: int = 1, p_size: int = 100, **params: Any) -> Page:
         query = {"KEY": self.settings.api_key, "Type": "json",
                  "pIndex": p_index, "pSize": p_size}
         query.update({k: v for k, v in params.items() if v not in (None, "")})
-        try:
-            resp = self.http.get(self.settings.api_url, params=query, timeout=self.timeout)
-            resp.raise_for_status()
-            data = resp.json()
-        except (requests.RequestException, ValueError) as e:
-            # 예외 메시지에 요청 URL(인증키 포함)이 들어가므로 가린 뒤 전달
-            raise AssemblyAPIError("HTTP", self._redact(str(e))) from None
+        for attempt in range(self.retries + 1):
+            try:
+                resp = self.http.get(self.settings.api_url, params=query, timeout=self.timeout)
+                resp.raise_for_status()
+                data = resp.json()
+                break
+            except (requests.RequestException, ValueError) as e:
+                if attempt < self.retries:  # 일시적 오류는 잠시 후 재시도(장기간 수집 보호)
+                    time.sleep(2 ** attempt)
+                    continue
+                # 예외 메시지에 요청 URL(인증키 포함)이 들어가므로 가린 뒤 전달
+                raise AssemblyAPIError("HTTP", self._redact(str(e))) from None
         return self.parse_response(data)
 
     def _redact(self, text: str) -> str:
@@ -153,7 +174,15 @@ class AssemblyClient:
             time.sleep(self.sleep)
 
     def committee_meetings(self, only_target: bool = True, **params: Any) -> list[dict]:
-        """행(대개 안건 단위)을 회의 단위로 묶어 반환한다."""
+        """행(대개 안건 단위)을 회의 단위로 묶어 반환한다.
+
+        필수 요청인자: DAE_NUM(대수), CONF_DATE(회의일자, 'YYYY'·'YYYY-MM'·'YYYY-MM-DD').
+        """
+        if not params.get("DAE_NUM"):
+            raise ValueError("국회 대수(DAE_NUM)는 필수입니다. 예: 22")
+        if not params.get("CONF_DATE"):
+            raise ValueError("회의일자(CONF_DATE)는 필수입니다. 예: 2024, 2024-10, 2024-10-07")
+        params["CONF_DATE"] = normalize_conf_date(str(params["CONF_DATE"]))
         meetings: dict[str, dict] = {}
         for row in self.iter_rows(**params):
             if only_target and not is_target_committee(row):

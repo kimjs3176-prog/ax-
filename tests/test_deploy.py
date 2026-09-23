@@ -23,10 +23,13 @@ def test_vercel_entrypoint_uses_tmp_and_seed(tmp_path, monkeypatch):
     import agrisea.config as config
     from agrisea import pipeline
 
-    seed = tmp_path / "seed.sqlite3"
-    src = Store(seed)
+    import gzip
+    raw = tmp_path / "seed.sqlite3"
+    src = Store(raw)
     pipeline.load_sample(src)
     src.conn.close()
+    seed = tmp_path / "seed.sqlite3.gz"
+    seed.write_bytes(gzip.compress(raw.read_bytes()))
 
     monkeypatch.setenv("VERCEL", "1")
     monkeypatch.setenv("AGRISEA_DATA_DIR", str(tmp_path / "run"))
@@ -55,3 +58,29 @@ def test_unwritable_data_dir_falls_back_to_memory(tmp_path):
     h = c.get("/api/health").json()
     assert not h["ok"] and h["storage"] == "memory" and h["startup_error"]
     assert c.get("/").status_code == 200
+
+
+def test_export_seed_roundtrip(tmp_path, monkeypatch):
+    """초기 데이터 내보내기: 가상 예시 제외, 내용이 같으면 다시 쓰지 않음, 풀어서 열면 검색 동작."""
+    import agrisea.config as config
+    from agrisea import pipeline
+
+    monkeypatch.setattr(config, "SEED_DB", tmp_path / "data" / "seed.sqlite3.gz")
+    monkeypatch.setattr(config, "SEED_META", tmp_path / "data" / "seed.meta.json")
+    s = Store(tmp_path / "work.sqlite3")
+    pipeline.load_sample(s)
+    with s.tx() as c:  # 예시 1건을 실제 수집 데이터처럼 표시
+        c.execute("UPDATE meetings SET is_sample=0 WHERE id='SAMPLE-2025-1014'")
+
+    meta = pipeline.export_seed(s)
+    assert meta["changed"] and meta["meetings"] == 1
+    assert pipeline.export_seed(s)["changed"] is False
+
+    run = Settings(api_key="", data_dir=tmp_path / "run", serverless=True)
+    assert pipeline.seed_store(run)
+    restored = Store(run.db_path, fts=False)
+    assert restored.stats()["meetings"] == 1 and restored.stats()["samples"] == 0
+    assert restored.search("시장격리")
+    # 인덱스 없이 만든 DB를 FTS 모드로 열면 인덱스를 다시 채움
+    restored.conn.close()
+    assert Store(run.db_path, fts=True).search("시장격리")
