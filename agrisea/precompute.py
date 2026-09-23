@@ -13,7 +13,7 @@ from .ontology import build_graph, to_ntriples_gz
 from .store import Store
 
 # 사전 계산 형식이 바뀌면 올린다(초기 데이터를 다시 만들게 함).
-PRECOMPUTE_VERSION = 2  # 2: 발언자 역할 재분류, 회기별 쟁점·개요 집계
+PRECOMPUTE_VERSION = 3  # 2: 발언자 역할 재분류, 회기별 쟁점·개요 집계 / 3: 띄어쓰기 교정
 
 CACHED_VIEWS: dict[str, Callable[[Store], object]] = {
     "issues": analysis.issue_overview,
@@ -24,6 +24,30 @@ CACHED_VIEWS: dict[str, Callable[[Store], object]] = {
     "issue_by_session": analysis.issue_by_session,
     "overview": analysis.overview,
 }
+
+
+def fix_spacing(store: Store, progress: Callable[[str], None] = print) -> int:
+    """아직 교정하지 않은 발언의 띄어쓰기를 고친다(규칙 버전이 오르면 전체를 다시 고친다).
+
+    교정 모델은 전체 발언으로 학습하고, 교정은 발언마다 한 번만 한다(매번 다시 고치면 조금씩 흔들림).
+    """
+    from .parser import clean_utterance_text
+    from .spacing import SPACING_VERSION, SpacingModel
+    pending = store.conn.execute("SELECT id, text FROM utterances WHERE spacing < ?",
+                                 (SPACING_VERSION,)).fetchall()
+    if not pending:
+        return 0
+    texts = [clean_utterance_text(t) for (t,) in store.conn.execute("SELECT text FROM utterances")]
+    model = SpacingModel.train(texts)
+    updates = [(model.correct(clean_utterance_text(r["text"])), SPACING_VERSION, r["id"])
+               for r in pending]
+    with store.tx() as conn:
+        conn.executemany("UPDATE utterances SET text=?, spacing=? WHERE id=?", updates)
+        conn.execute("DELETE FROM kv")
+        conn.execute("DELETE FROM summaries WHERE kind='rule'")
+    changed = sum(1 for (new, _, _), r in zip(updates, pending) if new != r["text"])
+    progress(f"띄어쓰기 교정: 대상 {len(pending)}건 중 {changed}건 수정")
+    return changed
 
 
 def reclassify(store: Store) -> int:
@@ -63,6 +87,7 @@ def reclassify(store: Store) -> int:
 
 def precompute(store: Store, kg_path: Path | None = None,
                progress: Callable[[str], None] = print) -> dict:
+    spaced = fix_spacing(store, progress)
     fixed = reclassify(store)
     n = 0
     for m in store.meetings(status="parsed"):
@@ -71,7 +96,7 @@ def precompute(store: Store, kg_path: Path | None = None,
             n += 1
     for key, fn in CACHED_VIEWS.items():
         store.kv_set(key, fn(store))
-    out = {"reclassified": fixed, "summaries": n, "views": list(CACHED_VIEWS)}
+    out = {"spacing": spaced, "reclassified": fixed, "summaries": n, "views": list(CACHED_VIEWS)}
     if kg_path:
         g = build_graph(store, text_limit=500)
         to_ntriples_gz(g, kg_path)

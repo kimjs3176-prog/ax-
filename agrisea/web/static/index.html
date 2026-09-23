@@ -141,7 +141,22 @@ table.t th{color:var(--muted);font-weight:500;font-size:13px;white-space:nowrap}
 .tablewrap{overflow-x:auto}
 pre{white-space:pre-wrap;font-size:13px}
 #tip{position:fixed;pointer-events:none;background:var(--ink);color:var(--panel);font-size:12px;padding:6px 9px;border-radius:6px;z-index:20;display:none;max-width:260px}
-#net{width:100%;height:480px;display:block}
+.net-stage{position:relative;height:560px;border-radius:var(--radius);overflow:hidden;touch-action:pan-y;cursor:grab;user-select:none;
+  background:radial-gradient(ellipse at 50% 45%,#16233d 0%,#0a1020 55%,#05070d 100%)}
+.net-stage.drag{cursor:grabbing}
+.net-stage canvas{display:block;width:100%;height:100%}
+.net-labels{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.net-labels .lb{position:absolute;left:0;top:0;white-space:nowrap;font-size:12px;color:#e8eef8;text-shadow:0 0 6px #000,0 0 2px #000;will-change:transform}
+.net-labels .lb.issue{font-weight:700;font-size:13px;color:#d9f5e1}
+.net-labels .lb.layer{font-size:11px;letter-spacing:.06em;color:#8fa3c4}
+.net-tip{position:absolute;display:none;pointer-events:none;background:rgba(8,12,22,.92);border:1px solid #2b3a57;color:#e8eef8;font-size:12px;padding:7px 10px;border-radius:8px;max-width:240px;z-index:2}
+.net-legend{position:absolute;left:12px;top:10px;display:flex;gap:12px;font-size:12px;color:#c7d3e6;pointer-events:none}
+.net-legend i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px;box-shadow:0 0 8px currentColor}
+.net-hud{position:absolute;right:12px;bottom:10px;font-size:11px;color:#7f90ad;pointer-events:none}
+.net-loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#8fa3c4;font-size:13px}
+.net-stage svg{width:100%;height:100%}
+.net-stage svg text{fill:#e8eef8}
+@media (max-width:640px){.net-stage{height:440px}.net-hud{display:none}}
 svg text{fill:var(--ink);font-size:11px}
 .empty{color:var(--muted);padding:20px 0;text-align:center}
 </style>
@@ -245,11 +260,15 @@ svg text{fill:var(--ink);font-size:11px}
     <div id="iDetail"><div class="card empty">왼쪽에서 쟁점을 선택하세요.</div></div>
   </div>
   <div class="card">
-    <details id="netBox">
-      <summary>쟁점–기관–위원 관계망 보기 (주요 연결만)</summary>
-      <p class="muted" style="font-size:13px">초록 = 쟁점, 파랑 = 기관, 보라 = 위원 · 선이 굵을수록 함께 언급된 횟수가 많음</p>
-      <svg id="net" role="img" aria-label="쟁점 기관 위원 관계망"></svg>
-    </details>
+    <h2>쟁점 신경망 <span class="muted" style="font-size:13px;font-weight:400">3D</span></h2>
+    <p class="sub">질의 위원(입력층) → 쟁점(은닉층) → 피감기관(출력층). 선이 밝을수록 함께 언급된 횟수가 많고, 흐르는 빛은 질의가 쟁점을 거쳐 기관으로 향하는 흐름입니다.</p>
+    <div id="netStage" class="net-stage" aria-label="위원·쟁점·기관 3D 관계망">
+      <div class="net-labels"></div>
+      <div class="net-tip"></div>
+      <div class="net-legend"><span><i style="background:#d7a6ea;color:#d7a6ea"></i>위원</span><span><i style="background:#7fd49a;color:#7fd49a"></i>쟁점</span><span><i style="background:#7fc0f0;color:#7fc0f0"></i>기관</span></div>
+      <div class="net-hud">드래그 회전 · 휠 확대 · 노드를 누르면 연결 고정 · 쟁점은 상세 보기</div>
+      <div class="net-loading">신경망을 불러오는 중…</div>
+    </div>
   </div>
 </section>
 
@@ -511,7 +530,7 @@ async function loadIssues(){
   $("#tree").innerHTML = barsHtml(rows, {onclick: "showIssue"});
   markSelected();
   if(!selIssue){ const first = rows.find(r => r.indent && r.count); if(first) showIssue(first.id) }
-  $("#netBox").ontoggle = () => { if($("#netBox").open) loadNet() };
+  loadNet();
 }
 function markSelected(){ document.querySelectorAll("#tree .hit").forEach(el => el.classList.toggle("sel", el.dataset.key === selIssue)) }
 async function showIssue(id){
@@ -540,9 +559,299 @@ async function showIssue(id){
     <div class="card"><h2>대표 질의</h2>${d.questions.slice(0, 8).map(q => `<div class="quote member"><div class="who">${esc(q.speaker)} <span class="meta">· ${dot(q.date)} · 제${q.session}회 · <button class="link" onclick="gotoMeeting('${esc(q.meeting_id)}')">회의 보기</button></span></div>${esc(q.text)}</div>`).join("") || '<div class="empty">-</div>'}</div>
     <div class="card"><h2>정부 약속</h2>${d.commitments.slice(0, 8).map(q => `<div class="quote warn"><div class="who">${esc(q.speaker)} <span class="meta">· ${dot(q.date)} · 제${q.session}회</span></div>${esc(q.text)}</div>`).join("") || '<div class="empty">-</div>'}</div>`;
 }
+// ── 쟁점 신경망(3D): 위원(입력층) → 쟁점(은닉층) → 기관(출력층) ──
+const THREE_URL = "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
+const NET_LAYERS = [
+  {kind: "member", title: "입력층 · 질의 위원", x: -360, top: 22, radius: 230, color: 0xd7a6ea},
+  {kind: "issue", title: "은닉층 · 쟁점", x: 0, top: 16, radius: 190, color: 0x7fd49a},
+  {kind: "org", title: "출력층 · 피감기관", x: 360, top: 16, radius: 200, color: 0x7fc0f0},
+];
+let netStarted = false;
 async function loadNet(){
-  const data = await api("/api/graph"), svg = $("#net");
-  const W = svg.clientWidth || 900, H = 480; svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  if(netStarted) return;
+  netStarted = true;
+  const stage = $("#netStage");
+  try{
+    const data = await api("/api/graph");
+    let THREE = null;
+    try{ THREE = await import(THREE_URL) }catch(e){ /* 오프라인 등: 2D로 대체 */ }
+    stage.querySelector(".net-loading").remove();
+    if(!THREE || !netWebGL()) return loadNet2d(stage, data);
+    buildNet3d(THREE, stage, data);
+  }catch(e){
+    netStarted = false;
+    stage.querySelector(".net-loading").textContent = "관계망을 불러오지 못했습니다: " + e.message;
+  }
+}
+function netWebGL(){
+  try{ const c = document.createElement("canvas"); return !!(c.getContext("webgl2") || c.getContext("webgl")) }catch(e){ return false }
+}
+function netPick(data){
+  // 층마다 비중이 큰 노드만: 위원 22, 쟁점 16, 기관 16
+  const nodes = [];
+  for(const L of NET_LAYERS){
+    const ns = data.nodes.filter(n => n.kind === L.kind).sort((a, b) => b.weight - a.weight).slice(0, L.top);
+    ns.forEach((n, i) => nodes.push({...n, layer: L, rank: i, count: ns.length}));
+  }
+  const idx = new Map(nodes.map((n, i) => [n.id, i]));
+  const edges = data.edges.filter(e => idx.has(e.source) && idx.has(e.target))
+    .sort((a, b) => b.weight - a.weight).slice(0, 220)
+    .map(e => {
+      // 신호가 왼쪽(위원)에서 오른쪽(기관)으로 흐르도록 방향을 맞춘다
+      let s = nodes[idx.get(e.source)], t = nodes[idx.get(e.target)];
+      if(s.layer.x > t.layer.x) [s, t] = [t, s];
+      return {s, t, w: e.weight};
+    });
+  return {nodes, edges};
+}
+function netGlowTexture(THREE){
+  const c = document.createElement("canvas"); c.width = c.height = 128;
+  const g = c.getContext("2d"), grad = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  grad.addColorStop(0, "rgba(255,255,255,1)"); grad.addColorStop(.18, "rgba(255,255,255,.85)");
+  grad.addColorStop(.45, "rgba(255,255,255,.22)"); grad.addColorStop(1, "rgba(255,255,255,0)");
+  g.fillStyle = grad; g.fillRect(0, 0, 128, 128);
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; return tex;
+}
+function buildNet3d(THREE, stage, data){
+  const {nodes, edges} = netPick(data);
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const renderer = new THREE.WebGLRenderer({antialias: true, alpha: true});
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  stage.prepend(renderer.domElement);
+  const scene = new THREE.Scene();
+  scene.fog = new THREE.FogExp2(0x070b16, 0.00085);
+  const camera = new THREE.PerspectiveCamera(48, 1, 1, 5000);
+  const glow = netGlowTexture(THREE);
+  const additive = {transparent: true, depthWrite: false, blending: THREE.AdditiveBlending};
+
+  // 노드 배치: 층마다 해바라기 원판(비중이 큰 노드가 가운데)
+  const maxW = Math.max(...nodes.map(n => n.weight), 1);
+  const group = new THREE.Group(); scene.add(group);
+  const pickables = [];
+  for(const n of nodes){
+    const L = n.layer, r = L.radius * Math.sqrt((n.rank + .5) / n.count), a = n.rank * 2.39996 + (L.x / 300);
+    n.pos = new THREE.Vector3(L.x, r * Math.sin(a), r * Math.cos(a));
+    n.size = 9 + 20 * Math.sqrt(n.weight / maxW);
+    n.color = new THREE.Color(L.color);
+    const core = new THREE.Mesh(new THREE.SphereGeometry(n.size * .32, 20, 14),
+      new THREE.MeshBasicMaterial({color: n.color.clone().lerp(new THREE.Color(0xffffff), .35)}));
+    core.position.copy(n.pos); group.add(core);
+    // 누르기 영역은 보이는 점보다 넉넉하게(보이지 않는 구)
+    const hit = new THREE.Mesh(new THREE.SphereGeometry(Math.max(14, n.size * 1.1), 10, 8),
+      new THREE.MeshBasicMaterial({transparent: true, opacity: 0, depthWrite: false, colorWrite: false}));
+    hit.position.copy(n.pos); hit.userData.node = n; group.add(hit); pickables.push(hit);
+    const halo = new THREE.Sprite(new THREE.SpriteMaterial({map: glow, color: n.color, opacity: .9, ...additive}));
+    halo.position.copy(n.pos); halo.scale.setScalar(n.size * 3.6); group.add(halo);
+    n.core = core; n.halo = halo;
+  }
+  // 층 테두리 고리
+  for(const L of NET_LAYERS){
+    const ring = new THREE.Mesh(new THREE.RingGeometry(L.radius + 26, L.radius + 27.5, 96),
+      new THREE.MeshBasicMaterial({color: L.color, opacity: .16, side: THREE.DoubleSide, ...additive}));
+    ring.rotation.y = Math.PI / 2; ring.position.x = L.x; group.add(ring);
+  }
+
+  // 연결선: 가운데가 살짝 부푼 곡선, 색은 양 끝 노드 색의 그라데이션
+  const SEG = 16, maxE = Math.max(...edges.map(e => e.w), 1);
+  for(const e of edges){
+    const mid = e.s.pos.clone().add(e.t.pos).multiplyScalar(.5);
+    mid.y *= 1.12; mid.z *= 1.12;
+    e.curve = new THREE.QuadraticBezierCurve3(e.s.pos, mid, e.t.pos);
+    e.strength = .12 + .88 * Math.sqrt(e.w / maxE);
+  }
+  const linePos = new Float32Array(edges.length * SEG * 6), lineCol = new Float32Array(edges.length * SEG * 6);
+  edges.forEach((e, k) => {
+    const pts = e.curve.getPoints(SEG);
+    for(let i = 0; i < SEG; i++){
+      const o = (k * SEG + i) * 6;
+      linePos.set([pts[i].x, pts[i].y, pts[i].z, pts[i + 1].x, pts[i + 1].y, pts[i + 1].z], o);
+    }
+  });
+  const lineGeo = new THREE.BufferGeometry();
+  lineGeo.setAttribute("position", new THREE.BufferAttribute(linePos, 3));
+  lineGeo.setAttribute("color", new THREE.BufferAttribute(lineCol, 3));
+  group.add(new THREE.LineSegments(lineGeo, new THREE.LineBasicMaterial({vertexColors: true, ...additive})));
+  const tmp = new THREE.Color();
+  function paintLines(focus){
+    edges.forEach((e, k) => {
+      const on = !focus || e.s === focus || e.t === focus;
+      const k2 = focus ? (on ? 1 : .05) : e.strength * .7;
+      for(let i = 0; i < SEG; i++){
+        const o = (k * SEG + i) * 6;
+        tmp.copy(e.s.color).lerp(e.t.color, i / SEG).multiplyScalar(k2); lineCol.set([tmp.r, tmp.g, tmp.b], o);
+        tmp.copy(e.s.color).lerp(e.t.color, (i + 1) / SEG).multiplyScalar(k2); lineCol.set([tmp.r, tmp.g, tmp.b], o + 3);
+      }
+    });
+    lineGeo.attributes.color.needsUpdate = true;
+    for(const n of nodes){
+      const on = !focus || n === focus || edges.some(e => (e.s === focus && e.t === n) || (e.t === focus && e.s === n));
+      n.lit = on; n.halo.material.opacity = on ? .9 : .12; n.core.material.opacity = on ? 1 : .25; if(n.core.material.transparent === on){ n.core.material.transparent = !on; n.core.material.needsUpdate = true }
+    }
+  }
+  paintLines(null);
+
+  // 신호: 연결선을 따라 흐르는 빛 입자(연결이 강할수록 자주)
+  const NP = reduce ? 0 : 420, cum = []; let acc = 0;
+  for(const e of edges){ acc += e.strength ** 2; cum.push(acc) }
+  const pickEdge = () => { const r = Math.random() * acc; let lo = 0, hi = cum.length - 1; while(lo < hi){ const m = (lo + hi) >> 1; if(cum[m] < r) lo = m + 1; else hi = m } return edges[lo] };
+  const parts = Array.from({length: NP}, () => ({e: pickEdge(), t: Math.random(), v: .004 + Math.random() * .006}));
+  const pPos = new Float32Array(NP * 3), pCol = new Float32Array(NP * 3);
+  const pGeo = new THREE.BufferGeometry();
+  pGeo.setAttribute("position", new THREE.BufferAttribute(pPos, 3));
+  pGeo.setAttribute("color", new THREE.BufferAttribute(pCol, 3));
+  group.add(new THREE.Points(pGeo, new THREE.PointsMaterial({size: 9, map: glow, vertexColors: true, sizeAttenuation: true, ...additive})));
+
+  // 배경 먼지
+  const DUST = 900, dPos = new Float32Array(DUST * 3);
+  for(let i = 0; i < DUST; i++){
+    const r = 700 + Math.random() * 1500, th = Math.random() * Math.PI * 2, ph = Math.acos(2 * Math.random() - 1);
+    dPos.set([r * Math.sin(ph) * Math.cos(th), r * Math.cos(ph), r * Math.sin(ph) * Math.sin(th)], i * 3);
+  }
+  const dGeo = new THREE.BufferGeometry(); dGeo.setAttribute("position", new THREE.BufferAttribute(dPos, 3));
+  const dust = new THREE.Points(dGeo, new THREE.PointsMaterial({size: 2.2, color: 0x6f86b3, opacity: .55, ...additive}));
+  scene.add(dust);
+
+  // 라벨(HTML): 쟁점은 모두, 위원·기관은 상위만, 포커스된 노드의 이웃은 추가로
+  const labelBox = stage.querySelector(".net-labels");
+  for(const n of nodes){
+    const el = document.createElement("div");
+    el.className = "lb " + n.layer.kind; el.textContent = n.label;
+    labelBox.appendChild(el); n.label_el = el;
+    n.always = n.layer.kind === "issue" || n.rank < 7;
+  }
+  const layerLabels = NET_LAYERS.map(L => {
+    const el = document.createElement("div"); el.className = "lb layer"; el.textContent = L.title; labelBox.appendChild(el);
+    return {el, pos: new THREE.Vector3(L.x, L.radius + 62, 0)};
+  });
+
+  // 카메라 궤도 조작(드래그 회전, 휠 확대, 잠시 뒤 자동 회전)
+  const orbit = {theta: -.62, phi: 1.25, radius: 820, target: new THREE.Vector3(0, 0, 0)};
+  let dragging = false, moved = false, lastX = 0, lastY = 0, idleAt = 0;
+  const el = renderer.domElement;
+  el.addEventListener("pointerdown", e => { dragging = true; moved = false; lastX = e.clientX; lastY = e.clientY; stage.classList.add("drag") });
+  addEventListener("pointerup", () => { if(dragging){ dragging = false; idleAt = performance.now(); stage.classList.remove("drag") } });
+  addEventListener("pointermove", e => {
+    if(!dragging) return;
+    const dx = e.clientX - lastX, dy = e.clientY - lastY;
+    if(Math.abs(dx) + Math.abs(dy) > 2) moved = true;
+    orbit.theta -= dx * .006; orbit.phi = Math.max(.35, Math.min(2.8, orbit.phi - dy * .006));
+    lastX = e.clientX; lastY = e.clientY;
+  });
+  el.addEventListener("wheel", e => { e.preventDefault(); orbit.radius = Math.max(380, Math.min(orbit.max || 1700, orbit.radius * (1 + Math.sign(e.deltaY) * .08))); idleAt = performance.now() }, {passive: false});
+
+  // 가리키기·누르기
+  const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), tipEl = stage.querySelector(".net-tip");
+  let hover = null, locked = null;
+  const nodeAt = e => {
+    const r = el.getBoundingClientRect();
+    ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+    ray.setFromCamera(ndc, camera);
+    const hit = ray.intersectObjects(pickables)[0];
+    return hit ? hit.object.userData.node : null;
+  };
+  const kindName = {member: "위원", issue: "쟁점", org: "기관"};
+  el.addEventListener("mousemove", e => {
+    if(dragging) return;
+    const n = nodeAt(e);
+    if(n !== hover){ hover = n; if(!locked) paintLines(n); el.style.cursor = n ? "pointer" : "" }
+    if(n){
+      const links = edges.filter(x => x.s === n || x.t === n).sort((a, b) => b.w - a.w).slice(0, 4);
+      tipEl.innerHTML = `<b>${esc(n.label)}</b> <span style="color:#8fa3c4">${kindName[n.layer.kind]} · ${fmt(n.weight)}</span>`
+        + links.map(x => `<div style="color:#b9c6da">— ${esc((x.s === n ? x.t : x.s).label)} ${fmt(x.w)}</div>`).join("")
+        + (n.layer.kind === "issue" ? '<div style="color:#7fd49a;margin-top:3px">누르면 쟁점 상세</div>' : "");
+      const r = stage.getBoundingClientRect();
+      tipEl.style.display = "block";
+      tipEl.style.left = Math.min(e.clientX - r.left + 14, r.width - tipEl.offsetWidth - 8) + "px";
+      tipEl.style.top = Math.min(e.clientY - r.top + 14, r.height - tipEl.offsetHeight - 8) + "px";
+    }else tipEl.style.display = "none";
+  });
+  el.addEventListener("mouseleave", () => { tipEl.style.display = "none"; hover = null; if(!locked) paintLines(null) });
+  el.addEventListener("click", e => {
+    if(moved) return;
+    const n = nodeAt(e);
+    if(n && n.layer.kind === "issue"){ showIssue(n.id.slice(6)); $("#iDetail").scrollIntoView({behavior: "smooth", block: "start"}); }
+    locked = n && n !== locked ? n : null; paintLines(locked || hover);
+  });
+
+  // 크기·가시성
+  function resize(){
+    const w = stage.clientWidth, h = stage.clientHeight;
+    renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
+    // 화면이 좁으면 세 층이 모두 들어오도록 물러선다
+    const fit = 540 / (Math.tan(camera.fov * Math.PI / 360) * camera.aspect);
+    orbit.radius = Math.min(2400, Math.max(orbit.radius, fit)); orbit.max = Math.max(1700, fit * 1.3);
+  }
+  new ResizeObserver(resize).observe(stage); resize();
+  let visible = true;
+  new IntersectionObserver(es => { visible = es[0].isIntersecting; if(visible) requestAnimationFrame(frame) }).observe(stage);
+
+  const v = new THREE.Vector3();
+  let last = performance.now();
+  function frame(now){
+    if(!visible || document.hidden){ return }
+    const dt = Math.min(50, now - last); last = now;
+    if(!dragging && !reduce && now - idleAt > 2500) orbit.theta += dt * .00008;
+    camera.position.set(
+      orbit.radius * Math.sin(orbit.phi) * Math.sin(orbit.theta),
+      orbit.radius * Math.cos(orbit.phi),
+      orbit.radius * Math.sin(orbit.phi) * Math.cos(orbit.theta));
+    camera.lookAt(orbit.target);
+    dust.rotation.y += dt * .00002;
+    // 노드 맥박
+    const pulse = t => 1 + .08 * Math.sin(now * .002 + t);
+    nodes.forEach((n, i) => n.halo.scale.setScalar(n.size * 3.6 * (n.lit ? pulse(i) : .8)));
+    // 신호 입자
+    const focus = locked || hover;
+    for(let i = 0; i < NP; i++){
+      const p = parts[i];
+      p.t += p.v * dt / 16;
+      if(p.t >= 1){ p.e = pickEdge(); p.t = 0; p.v = .004 + Math.random() * .006 }
+      p.e.curve.getPoint(p.t, v); pPos.set([v.x, v.y, v.z], i * 3);
+      const fade = Math.sin(Math.PI * p.t) * (focus && p.e.s !== focus && p.e.t !== focus ? .08 : 1);
+      tmp.copy(p.e.s.color).lerp(p.e.t.color, p.t).lerp(new THREE.Color(0xffffff), .45).multiplyScalar(fade);
+      pCol.set([tmp.r, tmp.g, tmp.b], i * 3);
+    }
+    if(NP){ pGeo.attributes.position.needsUpdate = true; pGeo.attributes.color.needsUpdate = true }
+    renderer.render(scene, camera);
+    // 라벨 위치
+    const w = stage.clientWidth, h = stage.clientHeight;
+    const near = focus ? new Set([focus, ...edges.filter(e => e.s === focus || e.t === focus).map(e => e.s === focus ? e.t : e.s)]) : null;
+    // 겹치는 라벨은 덜 중요한 쪽을 숨긴다(포커스 > 쟁점 > 언급량 순)
+    const cands = [];
+    for(const n of nodes){
+      v.copy(n.pos).project(camera);
+      if(v.z < 1 && (near ? near.has(n) : n.always)){
+        if(!n.lw){ n.label_el.style.display = "block"; n.lw = n.label_el.offsetWidth; n.lh = n.label_el.offsetHeight }
+        const x = (v.x * .5 + .5) * w + n.size * .45 + 5, y = (-v.y * .5 + .5) * h - n.lh / 2;
+        cands.push({n, x, y, z: v.z, pri: (n === focus ? 1e9 : 0) + (n.layer.kind === "issue" ? 1e6 : 0) + n.weight});
+      }else n.label_el.style.display = "none";
+    }
+    cands.sort((a, b) => b.pri - a.pri);
+    const placed = [];
+    for(const c of cands){
+      const r = {l: c.x - 2, r: c.x + c.n.lw + 2, t: c.y - 1, b: c.y + c.n.lh + 1};
+      const clash = placed.some(p => r.l < p.r && r.r > p.l && r.t < p.b && r.b > p.t);
+      c.n.label_el.style.display = clash ? "none" : "block";
+      if(clash) continue;
+      placed.push(r);
+      c.n.label_el.style.opacity = c.n === focus ? 1 : Math.max(.45, Math.min(1, 1.6 - c.z * 1.2));
+      c.n.label_el.style.transform = `translate(${c.x}px, ${c.y}px)`;
+    }
+    for(const L of layerLabels){
+      v.copy(L.pos).project(camera);
+      L.el.style.display = v.z < 1 ? "block" : "none";
+      L.el.style.transform = `translate(calc(${(v.x * .5 + .5) * w}px - 50%), ${(-v.y * .5 + .5) * h}px)`;
+    }
+    requestAnimationFrame(frame);
+  }
+  document.addEventListener("visibilitychange", () => { if(!document.hidden && visible){ last = performance.now(); requestAnimationFrame(frame) } });
+  requestAnimationFrame(frame);
+}
+// WebGL을 쓸 수 없을 때: 2D 관계망
+function loadNet2d(stage, data){
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  stage.prepend(svg);
+  const W = stage.clientWidth || 900, H = stage.clientHeight || 480; svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
   const top = new Set([...data.nodes].sort((a, b) => b.weight - a.weight).slice(0, 30).map(n => n.id));
   const nodes = data.nodes.filter(n => top.has(n.id)).map((n, i) => ({...n, x: W/2 + 220*Math.cos(i*2.4)*(0.3 + i/30), y: H/2 + 170*Math.sin(i*2.4)*(0.3 + i/30), vx: 0, vy: 0}));
   const idx = Object.fromEntries(nodes.map((n, i) => [n.id, i]));
@@ -551,12 +860,12 @@ async function loadNet(){
   for(let it = 0; it < 300; it++){
     for(const a of nodes) for(const b of nodes){ if(a === b) continue; const dx = a.x-b.x, dy = a.y-b.y, d2 = dx*dx+dy*dy+.01, f = 6000/d2, d = Math.sqrt(d2); a.vx += dx/d*f; a.vy += dy/d*f }
     for(const l of links){ const dx = l.t.x-l.s.x, dy = l.t.y-l.s.y, f = (Math.sqrt(dx*dx+dy*dy) - 130)*.004; l.s.vx += dx*f; l.s.vy += dy*f; l.t.vx -= dx*f; l.t.vy -= dy*f }
-    for(const n of nodes){ n.vx += (W/2-n.x)*.003; n.vy += (H/2-n.y)*.003; n.x += Math.max(-8, Math.min(8, n.vx*.5)); n.y += Math.max(-8, Math.min(8, n.vy*.5)); n.vx *= .6; n.vy *= .6; n.x = Math.max(40, Math.min(W-100, n.x)); n.y = Math.max(20, Math.min(H-20, n.y)) }
+    for(const n of nodes){ n.vx += (W/2-n.x)*.003; n.vy += (H/2-n.y)*.003; n.x += Math.max(-8, Math.min(8, n.vx*.5)); n.y += Math.max(-8, Math.min(8, n.vy*.5)); n.vx *= .6; n.vy *= .6; n.x = Math.max(40, Math.min(W-100, n.x)); n.y = Math.max(40, Math.min(H-20, n.y)) }
   }
-  const color = {issue: "var(--brand)", org: "var(--gov)", member: "var(--member)"};
+  const color = {issue: "#7fd49a", org: "#7fc0f0", member: "#d7a6ea"};
   const maxW = Math.max(...links.map(l => l.w), 1), maxN = Math.max(...nodes.map(n => n.weight), 1);
-  svg.innerHTML = links.map(l => `<line x1="${l.s.x}" y1="${l.s.y}" x2="${l.t.x}" y2="${l.t.y}" stroke="var(--line)" stroke-width="${1 + 4*l.w/maxW}" data-tip="${esc(l.s.label)} — ${esc(l.t.label)}<br>${fmt(l.w)}회"/>`).join("")
-    + nodes.map(n => `<g data-tip="${esc(n.label)} · ${fmt(n.weight)}"><circle cx="${n.x}" cy="${n.y}" r="${5 + 10*Math.sqrt(n.weight/maxN)}" fill="${color[n.kind]}" stroke="var(--panel)" stroke-width="2"/><text x="${n.x + 12}" y="${n.y + 4}">${esc(n.label)}</text></g>`).join("");
+  svg.innerHTML = links.map(l => `<line x1="${l.s.x}" y1="${l.s.y}" x2="${l.t.x}" y2="${l.t.y}" stroke="#3a4d70" stroke-width="${1 + 4*l.w/maxW}" data-tip="${esc(l.s.label)} — ${esc(l.t.label)}<br>${fmt(l.w)}회"/>`).join("")
+    + nodes.map(n => `<g data-tip="${esc(n.label)} · ${fmt(n.weight)}"><circle cx="${n.x}" cy="${n.y}" r="${5 + 10*Math.sqrt(n.weight/maxN)}" fill="${color[n.kind]}"/><text x="${n.x + 12}" y="${n.y + 4}">${esc(n.label)}</text></g>`).join("");
 }
 
 // ── 브리핑 ──
