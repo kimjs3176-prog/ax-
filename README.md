@@ -116,6 +116,9 @@ python -m agrisea ingest 회의록.pdf --title "제418회 국회(정기회) 제1
 2. 처음 한 번은 22대 임기 시작일(2024-05-30)부터 전체를 수집합니다(이 워크플로가 `main`에 머지될 때 자동 실행,
    또는 **Actions → 회의록 데이터 갱신 → Run workflow**). 이후에는 마지막 회의일 7일 전부터 이어서 수집합니다.
 3. 내용이 바뀐 날만 커밋되며, 화면 대시보드에 마지막 갱신 시각이 표시됩니다.
+4. 수집 직후 **회의별 요약, 쟁점·기관 집계, 쟁점–기관–위원 관계망, 지식그래프(`data/kg.nt.gz`)** 를 미리 계산해 함께 싣습니다.
+   배포 환경은 이 결과를 바로 보여 주고, SPARQL은 `pyoxigraph`로 질의합니다(첫 질의 때 그래프 적재 약 1초).
+   화면에서 직접 수집하면 해당 인스턴스에서 집계를 다시 계산합니다.
 
 회의록 PDF 서버(`record.assembly.go.kr`)는 해외 접속이 막혀 있어 GitHub Actions에서 직접 받을 수 없습니다.
 그래서 자동 수집은 서울 리전 배포본의 `/api/minutes-text?id=<회의번호>`를 거쳐 본문을 받습니다
@@ -171,7 +174,7 @@ python -m agrisea sample
 | GET | `/api/issues`, `/api/taxonomy`, `/api/orgs`, `/api/speakers` | 쟁점·기관·발언자 집계 |
 | GET | `/api/graph` | 쟁점–기관–위원 관계망 |
 | POST | `/api/sparql` `{"query": "..."}` | 읽기 전용 SPARQL(SERVICE/갱신 구문 차단) |
-| GET | `/api/ontology.ttl` | 지식그래프 전체(Turtle) |
+| GET | `/api/ontology.ttl` | 온톨로지 스키마(Turtle). 인스턴스 전체는 저장소의 `data/kg.nt.gz`(N-Triples) |
 | GET | `/api/minutes-text?id=<회의번호>` | 국회 회의록 PDF 본문 텍스트(자동 수집용) |
 | POST | `/api/admin/collect` `{"dae","date"}` 또는 `{"dae","date_from","date_to"}` | 회의 목록 수집 |
 | POST | `/api/admin/fetch-minutes?limit=3` | 본문 미수집 회의를 limit건씩 처리, 남은 건수 반환 |

@@ -34,6 +34,8 @@ CREATE INDEX IF NOT EXISTS ix_utt_speaker ON utterances(speaker_name);
 CREATE TABLE IF NOT EXISTS summaries (
     meeting_id TEXT, kind TEXT, payload TEXT, PRIMARY KEY (meeting_id, kind)
 );
+-- 집계 결과 캐시(쟁점·기관·관계망 등). 데이터가 바뀌면 비운다.
+CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT);
 """
 
 # 전문검색 인덱스(FTS5 trigram). 런타임 SQLite가 지원하지 않으면 LIKE 검색으로 대체한다.
@@ -81,6 +83,8 @@ class Store:
     # ── 쓰기 ─────────────────────────────────────────────
     def upsert_meeting(self, m: dict[str, Any], is_sample: bool = False) -> None:
         with self.tx() as c:
+            c.execute("DELETE FROM kv")
+            c.execute("DELETE FROM summaries WHERE meeting_id=? AND kind='rule'", (m["meeting_id"],))
             c.execute(
                 """INSERT INTO meetings (id, dae, title, committee, date, class_name, session_no,
                        conf_no, pdf_url, link_url, vod_url, agendas_json, raw_json, is_sample)
@@ -101,6 +105,7 @@ class Store:
 
     def save_minutes(self, meeting_id: str, doc: MinutesDoc) -> None:
         with self.tx() as c:
+            c.execute("DELETE FROM kv")
             c.execute("DELETE FROM utterances WHERE meeting_id=?", (meeting_id,))
             c.execute("DELETE FROM summaries WHERE meeting_id=?", (meeting_id,))
             if doc.agendas:
@@ -214,6 +219,15 @@ class Store:
         sql += " ORDER BY m.date DESC, u.idx LIMIT ?"
         args.append(limit)
         return [self._utt(r) for r in self.conn.execute(sql, args)]
+
+    def kv_get(self, key: str) -> Any:
+        r = self.conn.execute("SELECT value FROM kv WHERE key=?", (key,)).fetchone()
+        return json.loads(r["value"]) if r else None
+
+    def kv_set(self, key: str, value: Any) -> None:
+        with self.tx() as c:
+            c.execute("INSERT OR REPLACE INTO kv VALUES (?,?)",
+                      (key, json.dumps(value, ensure_ascii=False)))
 
     def summary(self, meeting_id: str, kind: str) -> dict | None:
         r = self.conn.execute("SELECT payload FROM summaries WHERE meeting_id=? AND kind=?",

@@ -2,6 +2,7 @@
 # 커밋되면 Vercel이 새로 배포하면서 이 데이터를 싣는다(배포 환경의 저장소는 임시라서 이 방식으로 영구 보관).
 #  - 매일 06:00(KST) 실행: 저장된 마지막 회의일 7일 전부터 오늘까지 수집
 #  - 초기 데이터가 없으면 22대 임기 시작일(2024-05-30)부터 전체 수집
+#  - 수집 후 회의 요약·쟁점/기관 집계·관계망·지식그래프(data/kg.nt.gz)를 미리 계산해 함께 커밋
 #  - 내용이 바뀌었을 때만 커밋
 # 저장소 Settings > Secrets and variables > Actions 에 ASSEMBLY_API_KEY 를 등록해야 한다.
 name: 회의록 데이터 갱신
@@ -67,7 +68,7 @@ jobs:
           python -m agrisea fetch-minutes   # 이전에 실패한 본문 재시도
           python -m agrisea stats
 
-      - name: 초기 데이터 내보내기
+      - name: 사전 계산(요약·집계·지식그래프) 및 초기 데이터 내보내기
         run: |
           python -m agrisea export-seed
           ls -la data/
@@ -76,7 +77,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/seed.sqlite3.gz data/seed.meta.json
+          git add data/seed.sqlite3.gz data/seed.meta.json data/kg.nt.gz
           if git diff --cached --quiet; then echo "변경 없음"; exit 0; fi
           git commit -m "chore(data): 농해수위 회의록 자동 수집 반영"
           git pull --rebase origin "${GITHUB_REF_NAME}"

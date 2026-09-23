@@ -89,7 +89,13 @@ def add_vocabulary(g: Graph) -> None:
             g.add((u, SKOS.altLabel, Literal(a, lang="ko")))
 
 
-def build_graph(store: Store, with_schema: bool = True) -> Graph:
+def build_graph(store: Store, with_schema: bool = True, core: bool = False,
+                text_limit: int | None = None) -> Graph:
+    """저장소 → RDF 그래프.
+
+    core=True 이면 국감에 쓰이는 발언(질의·답변·이행약속·자료요구)만 노드로 만들고,
+    text_limit 로 발언 본문 길이를 줄여 대용량에서도 빠르게 적재·질의할 수 있게 한다.
+    """
     g = new_graph(with_schema)
     add_vocabulary(g)
     committee = AGD["committee/agrisea"]
@@ -147,17 +153,26 @@ def build_graph(store: Store, with_schema: bool = True) -> Graph:
             if u["org"]:
                 g.add((pu, AG.affiliatedWith, org_uri(u["org"])))
 
+            for iid in u["issues"]:
+                g.add((mu, AG.concernsIssue, issue_uri(iid)))
+            is_answer = (not u["is_question"] and last_question is not None
+                         and u["speaker_type"] in ("official", "witness"))
+            if core and not (u["is_question"] or is_answer or u["is_commitment"]
+                             or u["is_data_request"]):
+                continue
+
             g.add((uu, RDF.type, AG.Utterance))
             g.add((uu, AG.inMeeting, mu))
             g.add((mu, AG.hasUtterance, uu))
             g.add((uu, AG.spokenBy, pu))
             g.add((uu, AG.orderIndex, Literal(u["idx"], datatype=XSD.integer)))
-            g.add((uu, AG.text, Literal(u["text"], lang="ko")))
+            text = u["text"] if not text_limit or len(u["text"]) <= text_limit \
+                else u["text"][: text_limit - 1] + "…"
+            g.add((uu, AG.text, Literal(text, lang="ko")))
             if u["agenda_idx"] is not None and u["agenda_idx"] < len(agenda_uris):
                 g.add((uu, AG.onAgendaItem, agenda_uris[u["agenda_idx"]]))
-            for iid, n in u["issues"].items():
+            for iid in u["issues"]:
                 g.add((uu, AG.concernsIssue, issue_uri(iid)))
-                g.add((mu, AG.concernsIssue, issue_uri(iid)))
             for org in u["orgs"]:
                 g.add((uu, AG.mentionsOrganization, org_uri(org)))
 
@@ -166,7 +181,7 @@ def build_graph(store: Store, with_schema: bool = True) -> Graph:
                 last_question, last_q_orgs = uu, list(u["orgs"])
                 for org in last_q_orgs:
                     g.add((uu, AG.addressedTo, org_uri(org)))
-            elif u["speaker_type"] in ("official", "witness") and last_question is not None:
+            elif is_answer:
                 g.add((uu, RDF.type, AG.Answer))
                 g.add((uu, AG.respondsTo, last_question))
                 if u["org"]:
@@ -240,17 +255,58 @@ ORDER BY DESC(?date)""",
 }
 
 
-def run_sparql(g: Graph, query: str, limit: int = 500) -> dict:
-    result = g.query(query)
-    if result.type == "ASK":
-        return {"columns": ["ask"], "rows": [[bool(result.askAnswer)]]}
-    if result.type == "CONSTRUCT" or result.type == "DESCRIBE":
-        rows = [[str(s), str(p), str(o)] for s, p, o in list(result.graph)[:limit]]
+KG_PATH = ROOT / "data" / "kg.nt.gz"
+
+
+def to_ntriples_gz(g: Graph, path: Path) -> None:
+    """그래프를 N-Triples(gzip)로 저장. 서버는 이 파일을 pyoxigraph로 빠르게 적재한다."""
+    import gzip
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = g.serialize(format="nt").encode("utf-8")
+    with open(path, "wb") as raw, gzip.GzipFile(fileobj=raw, mode="wb", mtime=0) as gz:
+        gz.write(data)
+
+
+def load_kg(nt: bytes):
+    """N-Triples → pyoxigraph 메모리 저장소(SPARQL 질의용)."""
+    import pyoxigraph as ox
+    kg = ox.Store()
+    kg.bulk_load(nt, ox.RdfFormat.N_TRIPLES)
+    return kg
+
+
+def kg_from_file(path: Path | None = None):
+    import gzip
+    return load_kg(gzip.decompress((path or KG_PATH).read_bytes()))
+
+
+def kg_from_store(store: Store):
+    return load_kg(build_graph(store, text_limit=500).serialize(format="nt").encode("utf-8"))
+
+
+def _term(t) -> str | None:
+    if t is None:
+        return None
+    return getattr(t, "value", str(t))
+
+
+def run_sparql(kg, query: str, limit: int = 500) -> dict:
+    """pyoxigraph 저장소에 SPARQL 실행 → {columns, rows}."""
+    import pyoxigraph as ox
+    result = kg.query(query)
+    if isinstance(result, ox.QueryBoolean):
+        return {"columns": ["ask"], "rows": [[bool(result)]]}
+    if isinstance(result, ox.QueryTriples):
+        rows = []
+        for i, t in enumerate(result):
+            if i >= limit:
+                break
+            rows.append([_term(t.subject), _term(t.predicate), _term(t.object)])
         return {"columns": ["s", "p", "o"], "rows": rows}
-    cols = [str(v) for v in result.vars]
+    cols = [v.value for v in result.variables]
     rows = []
-    for i, r in enumerate(result):
+    for i, sol in enumerate(result):
         if i >= limit:
             break
-        rows.append([None if v is None else str(v) for v in r])
+        rows.append([_term(sol[c]) for c in cols])
     return {"columns": cols, "rows": rows}

@@ -4,7 +4,7 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from typing import Any
 
-from .lexicon import ISSUES, issue_label
+from .lexicon import ISSUES, ORGANIZATIONS, issue_label
 from .nlp import extractive_summary, keywords, truncate
 from .store import Store
 
@@ -254,3 +254,38 @@ def issue_overview(store: Store) -> list[dict]:
                     "orgs": [o for o, _ in d["orgs"].most_common(5)],
                     "members": [m for m, _ in d["members"].most_common(5)]})
     return out
+
+
+def org_overview(store: Store) -> list[dict]:
+    cnt, commits = Counter(), Counter()
+    for u in store.utterances():
+        for o in set(u["orgs"]) | ({u["org"]} if u["org"] else set()):
+            cnt[o] += 1
+        if u["is_commitment"] and u["org"]:
+            commits[u["org"]] += 1
+    return [{"name": n, "aliases": list(ORGANIZATIONS[n]), "mentions": cnt[n],
+             "commitments": commits[n]} for n in ORGANIZATIONS]
+
+
+def issue_network(store: Store, min_weight: int = 1) -> dict:
+    """쟁점–기관–위원 관계망(시각화용)."""
+    nodes: dict[str, dict] = {}
+    edges: Counter = Counter()
+
+    def node(nid: str, label: str, kind: str):
+        n = nodes.setdefault(nid, {"id": nid, "label": label, "kind": kind, "weight": 0})
+        n["weight"] += 1
+
+    for u in store.utterances():
+        orgs_ = set(u["orgs"]) | ({u["org"]} if u["org"] else set())
+        for i in u["issues"]:
+            node(f"issue:{i}", ISSUES[i][0], "issue")
+            for o in orgs_:
+                node(f"org:{o}", o, "org")
+                edges[(f"issue:{i}", f"org:{o}")] += 1
+            if u["speaker_type"] == "member":
+                node(f"member:{u['speaker_name']}", f"{u['speaker_name']} 위원", "member")
+                edges[(f"member:{u['speaker_name']}", f"issue:{i}")] += 1
+    return {"nodes": list(nodes.values()),
+            "edges": [{"source": a, "target": b, "weight": w}
+                      for (a, b), w in edges.items() if w >= min_weight]}
