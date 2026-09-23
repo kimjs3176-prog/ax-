@@ -114,6 +114,8 @@ def export_seed(store: Store) -> dict:
             conn.execute("DROP TABLE IF EXISTS utterances_fts")
             conn.execute("UPDATE meetings SET raw_json=NULL")
             conn.execute("DELETE FROM kv")
+            # 회의 요약은 요약 규칙이 바뀌어도 반영되도록 내보낼 때마다 새로 만든다
+            conn.execute("DELETE FROM summaries WHERE kind='rule'")
         conn.close()
         # 가상 예시를 뺀 사본 기준으로 요약·집계·지식그래프를 미리 계산해 함께 싣는다
         exported = Store(path, fts=False)

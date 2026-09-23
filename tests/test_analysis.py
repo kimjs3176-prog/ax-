@@ -70,3 +70,13 @@ def test_running_header_removed():
     from agrisea.parser import clean_utterance_text
     assert clean_utterance_text("들어온 다음에 16 제439회-농림축산식품해양수산제2차(2026년9월17일) 그동안") \
         == "들어온 다음에 그동안"
+
+
+def test_summary_skips_bill_lists_and_short_replies():
+    from agrisea.nlp import extractive_summary
+    bills = " ".join(f"{d}일 회부됨 농지법 일부개정법률안 (2026.8.{d}.김종양 의원 대표발의)(의안번호22205{d:02d})"
+                     for d in range(1, 12))
+    text = (f"쌀값 하락에 대한 정부 대책을 묻습니다. {bills}. 3번 사업과 같은 내용입니다. "
+            "예, 맞습니다. 수확기 쌀값 안정을 위해 정부가 시장격리 물량을 추가로 검토하겠습니다.")
+    out = extractive_summary(text, 3)
+    assert out and not any("의안번호" in s or s.startswith(("3번", "예,")) for s in out)
