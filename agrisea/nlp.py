@@ -87,9 +87,21 @@ COURTESY = re.compile(r"(감사드립니다|감사합니다|수고하셨습니�
                       r"보고(를)? 드리겠습니다|말씀드리겠습니다|의사일정 제\d+항)")
 
 
+# 요약에 넣지 않을 문장: 의안 회부 목록('…(의안번호2220471) 8월10일 회부됨 …') 같은 PDF 잔여물
+BILL_LIST = re.compile(r"의안번호|대표발의|회부[됨함]|\(\d{4}\.\s?\d{1,2}\.\s?\d{1,2}\.")
+MAX_SENT = 350      # 이보다 긴 '문장'은 문장부호 없이 이어진 목록·표
+MIN_HANGUL = 12     # '3번 사업과 같은 내용입니다', '예, 맞습니다' 같은 짧은 대답 제외
+
+
+def is_summary_noise(s: str) -> bool:
+    if len(s) > MAX_SENT or len(BILL_LIST.findall(s)) >= 2:
+        return True
+    return len(re.findall(r"[가-힣]", s)) < MIN_HANGUL
+
+
 def extractive_summary(text: str, n: int = 3, focus: Iterable[str] = ()) -> list[str]:
     """중요 문장 n개를 원문 순서대로 반환(키워드 밀도 + 도메인 용어 + 수치 가중)."""
-    sents = split_sentences(text)
+    sents = [s for s in split_sentences(text) if not is_summary_noise(s)]
     if len(sents) <= n:
         return sents
     freq = Counter(tokenize(text))

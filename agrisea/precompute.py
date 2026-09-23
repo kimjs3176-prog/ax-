@@ -13,7 +13,7 @@ from .ontology import build_graph, to_ntriples_gz
 from .store import Store
 
 # 사전 계산 형식이 바뀌면 올린다(초기 데이터를 다시 만들게 함).
-PRECOMPUTE_VERSION = 3  # 2: 발언자 역할 재분류, 회기별 쟁점·개요 집계 / 3: 띄어쓰기 교정
+PRECOMPUTE_VERSION = 4  # 2: 발언자 역할 재분류, 회기별 쟁점·개요 집계 / 3: 띄어쓰기 교정 / 4: 요약에서 의안 목록 제외
 
 CACHED_VIEWS: dict[str, Callable[[Store], object]] = {
     "issues": analysis.issue_overview,
