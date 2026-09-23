@@ -347,6 +347,7 @@ def issue_detail(store: Store, issue_id: str, session: int | None = None, limit:
 
     return {
         "id": issue_id, "label": label, "parent": ISSUES[parent][0] if parent else None,
+        "dialogue": issue_dialogue(store, questions[:12], commitments[:40], focus),
         "children": [{"id": i, "label": v[0]} for i, v in ISSUES.items() if v[1] == issue_id],
         "keywords": sorted(focus), "count": len(uniq),
         "meetings": len({u["meeting_id"] for u in uniq}),
@@ -356,6 +357,69 @@ def issue_detail(store: Store, issue_id: str, session: int | None = None, limit:
         "questions": [view(u) for u in questions[:limit]],
         "commitments": [view(u) for u in commitments[:limit]],
     }
+
+
+def _neighbors(store: Store, u: dict, before: int = 8, after: int = 8) -> list[dict]:
+    rows = store.conn.execute(
+        "SELECT u.*, m.date AS meeting_date, m.session_no AS session_no FROM utterances u "
+        "JOIN meetings m ON m.id=u.meeting_id WHERE u.meeting_id=? AND u.idx BETWEEN ? AND ? "
+        "ORDER BY u.idx", (u["meeting_id"], u["idx"] - before, u["idx"] + after)).fetchall()
+    return [store._utt(r) for r in rows]
+
+
+def issue_dialogue(store: Store, questions: list[dict], commitments: list[dict],
+                   focus: set[str], limit: int = 12) -> list[dict]:
+    """쟁점 대화: 정부 약속은 그 앞의 위원 질의와, 대표 질의는 뒤따른 정부 답변과 묶는다.
+    화면에서 질의는 왼쪽, 답변·약속은 오른쪽 말풍선으로 보인다."""
+    threads: dict[tuple, dict] = {}
+
+    def add(q: dict | None, a: dict | None) -> None:
+        key = (q or a)["meeting_id"], (q or a)["idx"]
+        if key in threads and not (a and a["is_commitment"]):
+            return
+        threads[key] = {"q": q, "a": a}
+
+    for c in commitments:
+        near = _neighbors(store, c, before=30, after=0)
+        # 바로 앞 질의(물음)를 우선, 없으면 짧은 맞장구('이상입니다')가 아닌 위원 발언
+        members = [u for u in reversed(near[:-1]) if u["speaker_type"] == "member"]
+        q = next((u for u in members if u["is_question"]), None) or \
+            next((u for u in members if len(u["text"]) >= 40), None)
+        add(q, c)
+    for q in questions:
+        near = [u for u in _neighbors(store, q, before=0) if u["idx"] > q["idx"]]
+        a = None
+        for u in near:
+            if u["speaker_type"] == "member":
+                break
+            if u["speaker_type"] in ("official", "witness"):
+                a = u
+                break
+        add(q, a)
+
+    def qv(u: dict) -> dict:
+        return {"speaker": u["speaker_name"] + " 위원",
+                "text": " ".join(extractive_summary(u["text"], 2, focus=focus)) or truncate(u["text"], 220)}
+
+    def av(u: dict) -> dict:
+        text = (" ".join(commitment_sentences(u["text"])[:2]) if u["is_commitment"] else
+                " ".join(extractive_summary(u["text"], 2, focus=focus)))
+        return {"speaker": f"{u['speaker_role']} {u['speaker_name']}", "org": u["org"],
+                "commitment": u["is_commitment"], "text": truncate(text or u["text"], 260)}
+
+    # 질의와 약속이 모두 있는 대화 > 질의와 답변 > 한쪽만 있는 것(업무보고 중 약속 등)
+    rank = lambda t: (2 if t["q"] and t["a"] and t["a"]["is_commitment"] else
+                      1 if t["q"] and t["a"] else 0)
+    chosen = sorted(threads.values(), key=rank, reverse=True)[:limit]
+    out = []
+    for t in chosen:
+        base = t["q"] or t["a"]
+        out.append({"meeting_id": base["meeting_id"], "date": base["meeting_date"],
+                    "session": base["session_no"], "idx": base["idx"],
+                    "question": qv(t["q"]) if t["q"] else None,
+                    "answer": av(t["a"]) if t["a"] else None})
+    out.sort(key=lambda d: (d["date"] or "", -d["idx"]), reverse=True)
+    return out
 
 
 def overview(store: Store, recent: int = 6) -> dict:

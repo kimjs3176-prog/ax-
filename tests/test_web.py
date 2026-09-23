@@ -37,3 +37,10 @@ def test_sessions_overview_and_issue_detail(store, settings):
     assert c.get("/api/issues/nope").status_code == 404
     b = c.get("/api/briefing", params={"org": "해양수산부", "session": 430}).json()
     assert b["filters"]["session"] == 430 and b["counts"]["meetings"] == 1
+
+
+def test_issue_dialogue_pairs_question_and_answer(store, settings):
+    d = TestClient(create_app(settings, store)).get("/api/issues/rice").json()
+    assert d["dialogue"]
+    t = next(t for t in d["dialogue"] if t["question"] and t["answer"])
+    assert t["question"]["speaker"].endswith("위원") and t["answer"]["speaker"]
