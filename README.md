@@ -67,9 +67,10 @@ python -m agrisea collect --dae 22 --date 2024-10-07 --fetch
 # API 요청인자를 직접 추가(KEY=VALUE 반복 가능)
 python -m agrisea collect --dae 22 --param CONF_DATE=2024 --fetch
 
-# 기간 수집(회의일자를 하루씩 바꿔 호출) / 최근 N일
+# 기간 수집(회의일자를 하루씩 바꿔 호출) / 최근 N일 / 마지막 수집일부터 이어서
 python -m agrisea collect --dae 22 --from 2024-10-01 --to 2024-10-31 --fetch
 python -m agrisea collect --dae 22 --days 14 --fetch
+python -m agrisea collect --resume --fetch
 
 # 이미 저장된 회의 중 본문 미수집 건만 다시 내려받기
 python -m agrisea fetch-minutes --limit 50
@@ -77,7 +78,8 @@ python -m agrisea fetch-minutes --limit 50
 
 - 수집 결과는 `var/agrisea.sqlite3`, 지식그래프는 `var/agrisea_kg.ttl`에 저장됩니다(`AGRISEA_DATA_DIR`로 변경 가능).
 - 위원회 필터: 위원회명/회의명에 `농림축산식품해양수산위원회`(과거 명칭 포함)가 들어간 행만 저장합니다. 다른 위원회까지 받으려면 `--all-committees`.
-- API가 요구하는 필수 인자(`DAE_NUM`, `CONF_DATE` 등)가 빠지면 API 오류 코드(`ERROR-300` 등)가 그대로 표시됩니다. 열린국회정보의 해당 API 명세에서 요청인자를 확인해 `--param`으로 넘기세요.
+- API 필수 요청인자는 `DAE_NUM`(대수)과 `CONF_DATE`(회의일자)입니다. `CONF_DATE`는 `2024`, `2024-10`, `2024-10-07` 형식이며
+  `20241007`처럼 입력해도 자동 변환합니다(구분자 없는 형식은 API가 빈 결과를 돌려줌). 빠지면 `ERROR-300`이 납니다.
 - 출력 필드명(`CONFER_NUM`, `TITLE`, `COMM_NAME`, `CONF_DATE`, `SUB_NAME`, `PDF_LINK_URL` 등)은 `agrisea/api_client.py`의 `FIELD_ALIASES`에서 별칭까지 흡수합니다. 실제 응답 필드가 다르면 여기에 추가하면 됩니다.
 
 API 접근이 어려운 환경에서는 내려받은 회의록 PDF를 직접 적재할 수 있습니다.
@@ -107,14 +109,21 @@ python -m agrisea ingest 회의록.pdf --title "제418회 국회(정기회) 제1
 수집 기능에는 별도 인증이 없어 URL을 아는 누구나 실행할 수 있습니다(인증키 사용량이 소모될 수 있음).
 인증키는 서버(함수)에서만 쓰이고 브라우저로 전달되지 않으며, 오류 메시지에서도 `KEY=***`로 가려집니다.
 
-**서버리스 저장소 주의**: Vercel 함수는 `/tmp`만 쓸 수 있고 인스턴스가 바뀌면 초기화됩니다. 그래서 두 가지 경로를 둡니다.
+**회의록 자동 수집(권장)**: GitHub Actions 「회의록 데이터 갱신」(`.github/workflows/refresh-data.yml`)이
+매일 06:00(KST) 국회 API로 회의록을 수집·파싱해 `data/seed.sqlite3.gz`로 커밋하고, Vercel이 재배포하면서 이 데이터를 싣습니다.
 
-- **영구 데이터(권장)**: GitHub Actions 「회의록 데이터 갱신」(`.github/workflows/refresh-data.yml`)이 API로 수집한 결과를
-  `data/seed.sqlite3`로 커밋 → Vercel이 재배포하면서 이 파일을 초기 데이터로 씁니다.
-  저장소 **Settings → Secrets and variables → Actions**에 `ASSEMBLY_API_KEY`를 등록하고,
-  **Actions** 탭에서 수동 실행(기간 지정)하거나 매주 월요일 06:00(KST) 자동 실행을 쓰면 됩니다.
-  로컬에서 수집한 DB를 올리려면 `python -m agrisea export-seed` 후 `data/seed.sqlite3`를 커밋하세요.
-- **즉석 수집**: 웹 화면에서 수집한 데이터는 해당 인스턴스가 살아 있는 동안만 유지됩니다(확인·시연용).
+1. 저장소 **Settings → Secrets and variables → Actions**에 `ASSEMBLY_API_KEY` 등록
+2. 처음 한 번은 22대 임기 시작일(2024-05-30)부터 전체를 수집합니다(이 워크플로가 `main`에 머지될 때 자동 실행,
+   또는 **Actions → 회의록 데이터 갱신 → Run workflow**). 이후에는 마지막 회의일 7일 전부터 이어서 수집합니다.
+3. 내용이 바뀐 날만 커밋되며, 화면 대시보드에 마지막 갱신 시각이 표시됩니다.
+
+회의록 PDF 서버(`record.assembly.go.kr`)는 해외 접속이 막혀 있어 GitHub Actions에서 직접 받을 수 없습니다.
+그래서 자동 수집은 서울 리전 배포본의 `/api/minutes-text?id=<회의번호>`를 거쳐 본문을 받습니다
+(국회 회의록 주소만 조회하도록 고정). 배포 주소가 바뀌면 저장소 **Variables**에 `MINUTES_PROXY`를 지정하세요.
+
+배포 환경(Vercel)은 `/tmp`만 쓸 수 있어 화면에서 직접 수집한 데이터는 서버가 재시작되면 사라집니다(확인·시연용).
+초기 데이터에는 전문검색 인덱스를 넣지 않고 압축하며, 배포 환경에서는 일반 문자열 검색을 씁니다.
+로컬 DB를 직접 올리려면 `python -m agrisea export-seed` 후 `data/seed.sqlite3.gz`, `data/seed.meta.json`을 커밋하세요.
 
 함수 리전은 국회 API와 가까운 서울(`icn1`), 최대 실행시간은 60초로 설정되어 있습니다(`vercel.json`).
 회의록 본문은 실행시간 제한 때문에 화면에서 3건씩 나눠 자동 반복 처리합니다.
@@ -163,6 +172,7 @@ python -m agrisea sample
 | GET | `/api/graph` | 쟁점–기관–위원 관계망 |
 | POST | `/api/sparql` `{"query": "..."}` | 읽기 전용 SPARQL(SERVICE/갱신 구문 차단) |
 | GET | `/api/ontology.ttl` | 지식그래프 전체(Turtle) |
+| GET | `/api/minutes-text?id=<회의번호>` | 국회 회의록 PDF 본문 텍스트(자동 수집용) |
 | POST | `/api/admin/collect` `{"dae","date"}` 또는 `{"dae","date_from","date_to"}` | 회의 목록 수집 |
 | POST | `/api/admin/fetch-minutes?limit=3` | 본문 미수집 회의를 limit건씩 처리, 남은 건수 반환 |
 | POST | `/api/admin/sample` | 가상 예시 데이터 적재 |

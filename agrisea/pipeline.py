@@ -39,8 +39,6 @@ def collect_range(store: Store, settings: Settings, date_from: str, date_to: str
     start, end = date.fromisoformat(date_from), date.fromisoformat(date_to)
     if end < start:
         raise ValueError("종료일이 시작일보다 빠릅니다.")
-    if (end - start).days > 366:
-        raise ValueError("한 번에 최대 1년까지 수집할 수 있습니다.")
     client = AssemblyClient(settings)
     found: list[dict] = []
     day = start
@@ -59,7 +57,8 @@ def pending_count(store: Store) -> int:
 
 
 def seed_store(settings: Settings) -> bool:
-    """배포 번들의 초기 DB를 쓰기 가능한 위치로 복사(서버리스 콜드스타트용)."""
+    """배포 번들의 초기 DB(gzip)를 쓰기 가능한 위치에 풀어 둔다(서버리스 콜드스타트용)."""
+    import gzip
     import shutil
 
     from .config import SEED_DB
@@ -67,8 +66,69 @@ def seed_store(settings: Settings) -> bool:
     if settings.db_path.exists() or not SEED_DB.exists():
         return False
     settings.ensure_dirs()
-    shutil.copyfile(SEED_DB, settings.db_path)
+    tmp = settings.db_path.with_suffix(".tmp")
+    with gzip.open(SEED_DB, "rb") as src, open(tmp, "wb") as dst:
+        shutil.copyfileobj(src, dst)
+    tmp.replace(settings.db_path)
     return True
+
+
+def seed_meta() -> dict:
+    from .config import SEED_META
+    try:
+        return json.loads(SEED_META.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def export_seed(store: Store) -> dict:
+    """현재 DB를 배포용 초기 데이터로 내보낸다(가상 예시·전문검색 인덱스·원본 JSON 제외, gzip).
+
+    내용 해시가 기존 초기 데이터와 같으면 파일을 다시 쓰지 않는다(불필요한 커밋 방지).
+    """
+    import gzip
+    import sqlite3
+    import tempfile
+    from datetime import datetime, timezone
+
+    from .config import SEED_DB, SEED_META
+
+    digest = store.content_hash()
+    old = seed_meta()
+    if old.get("hash") == digest and SEED_DB.exists():
+        return {**old, "changed": False}
+
+    with tempfile.TemporaryDirectory() as d:
+        path = Path(d) / "seed.sqlite3"
+        with sqlite3.connect(path) as dst:
+            store.conn.backup(dst)
+        conn = sqlite3.connect(path)
+        conn.execute("PRAGMA foreign_keys = ON")
+        with conn:
+            conn.execute("DELETE FROM meetings WHERE is_sample=1")
+            conn.execute("DELETE FROM utterances WHERE meeting_id NOT IN (SELECT id FROM meetings)")
+            for name in ("utt_ai", "utt_ad"):
+                conn.execute(f"DROP TRIGGER IF EXISTS {name}")
+            conn.execute("DROP TABLE IF EXISTS utterances_fts")
+            conn.execute("UPDATE meetings SET raw_json=NULL")
+        conn.execute("VACUUM")
+        conn.close()
+        exported = Store(path, fts=False)
+        stats = {k: v for k, v in exported.stats().items() if k != "samples"}
+        exported.conn.close()
+        SEED_DB.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "rb") as src, open(SEED_DB, "wb") as raw, \
+                gzip.GzipFile(fileobj=raw, mode="wb", mtime=0) as gz:
+            gz.write(src.read())
+
+    meta = {
+        "hash": digest,
+        "exported_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "size_bytes": SEED_DB.stat().st_size,
+        **stats,
+    }
+    SEED_META.write_text(json.dumps(meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return {**meta, "changed": True}
 
 
 def html_to_text(raw: str) -> str:
@@ -96,6 +156,26 @@ def download_minutes_text(url: str, dest_dir: Path, name: str,
     return html_to_text(text)
 
 
+RECORD_PDF_URL = "https://record.assembly.go.kr/assembly/viewer/minutes/download/pdf.do?id={id}"
+RECORD_ID_RE = re.compile(r"record\.assembly\.go\.kr/.*[?&]id=(\d{1,12})")
+
+
+def minutes_text(url: str, settings: Settings, name: str,
+                 http: requests.Session | None = None) -> str:
+    """회의록 본문 텍스트. 회의록 PDF 서버는 해외 접속이 막혀 있어, AGRISEA_MINUTES_PROXY가 있으면
+    국내 리전(Vercel icn1)의 /api/minutes-text 를 거쳐 받는다."""
+    import os
+
+    proxy = os.environ.get("AGRISEA_MINUTES_PROXY", "").strip()
+    m = RECORD_ID_RE.search(url)
+    if proxy and m:
+        http = http or requests.Session()
+        resp = http.get(proxy, params={"id": m.group(1)}, timeout=120)
+        resp.raise_for_status()
+        return resp.text
+    return download_minutes_text(url, settings.pdf_dir, name, http)
+
+
 def fetch_minutes(store: Store, settings: Settings, meeting_ids: list[str] | None = None,
                   limit: int | None = None, progress: Callable[[str], None] = print) -> int:
     retry = ("pending",) if limit else ("pending", "failed")  # 배치 모드에선 실패 건 무한 재시도 방지
@@ -112,7 +192,7 @@ def fetch_minutes(store: Store, settings: Settings, meeting_ids: list[str] | Non
             store.set_status(m["id"], "metadata_only")
             continue
         try:
-            text = download_minutes_text(url, settings.pdf_dir, m["id"], http)
+            text = minutes_text(url, settings, m["id"], http)
             doc = parse_minutes(text)
             store.save_minutes(m["id"], doc)
             ok += bool(doc.utterances)

@@ -15,6 +15,7 @@ from .. import analysis
 from ..config import Settings, get_settings
 from ..lexicon import ISSUES, ORGANIZATIONS
 from ..ontology import PRESET_QUERIES, build_graph, run_sparql, save_graph
+from ..pipeline import seed_meta
 from ..store import Store
 
 STATIC = Path(__file__).parent / "static"
@@ -49,7 +50,8 @@ def create_app(settings: Settings | None = None, store: Store | None = None) -> 
         try:
             storage = "seed" if seed_store(settings) else "local"
             settings.ensure_dirs()
-            store = Store(settings.db_path)
+            # 서버리스는 콜드스타트마다 인덱스를 새로 만들지 않도록 LIKE 검색 사용
+            store = Store(settings.db_path, fts=not settings.serverless)
         except Exception as e:  # 저장소를 못 열어도 화면·진단은 뜨도록 메모리 DB로 대체
             startup_error = f"{type(e).__name__}: {e}"
             storage = "memory"
@@ -87,7 +89,8 @@ def create_app(settings: Settings | None = None, store: Store | None = None) -> 
     def stats():
         return {**store.stats(), "llm_enabled": settings.llm_enabled,
                 "api_key_configured": bool(settings.api_key),
-                "storage": storage, "serverless": settings.serverless}
+                "storage": storage, "serverless": settings.serverless,
+                "data_updated": seed_meta().get("exported_at")}
 
     @app.get("/api/meetings")
     def meetings(date_from: str = "", date_to: str = "", q: str = ""):
@@ -196,6 +199,20 @@ def create_app(settings: Settings | None = None, store: Store | None = None) -> 
                 "edges": [{"source": a, "target": b, "weight": w}
                           for (a, b), w in edges.items() if w >= min_weight]}
 
+    @app.get("/api/minutes-text")
+    def minutes_text(id: str = Query(..., pattern=r"^\d{1,12}$")):
+        """국회 회의록 PDF(record.assembly.go.kr)를 받아 텍스트로 반환.
+
+        회의록 PDF 서버가 해외 접속을 막아 GitHub Actions 자동 수집이 이 엔드포인트(서울 리전)를 거친다.
+        고정된 국회 회의록 주소만 조회하므로 임의 URL 프록시로 쓰일 수 없다.
+        """
+        from ..pipeline import RECORD_PDF_URL, download_minutes_text
+        try:
+            text = download_minutes_text(RECORD_PDF_URL.format(id=id), settings.pdf_dir, id)
+        except Exception as e:
+            raise HTTPException(502, f"회의록을 가져오지 못했습니다: {e}") from e
+        return PlainTextResponse(text, media_type="text/plain; charset=utf-8")
+
     @app.get("/api/ontology.ttl")
     def ontology_ttl():
         return PlainTextResponse(graphs.get().serialize(format="turtle"),
@@ -207,6 +224,8 @@ def create_app(settings: Settings | None = None, store: Store | None = None) -> 
         from ..pipeline import collect, collect_range, pending_count
         if not settings.api_key:
             raise HTTPException(400, "ASSEMBLY_API_KEY가 설정되지 않았습니다.")
+        if not (payload.get("date") or payload.get("date_from")):
+            raise HTTPException(400, "회의일자를 입력하세요. 예: 2026-09-01 (기간은 31일 이내)")
         extra = {str(k): str(v) for k, v in (payload.get("params") or {}).items()}
         base = {"DAE_NUM": str(payload.get("dae") or "22"), **extra}
         log: list[str] = []

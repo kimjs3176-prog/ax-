@@ -51,7 +51,7 @@ END;
 
 
 class Store:
-    def __init__(self, path: Path | str):
+    def __init__(self, path: Path | str, fts: bool = True):
         self.path = str(path)
         if self.path != ":memory:":
             Path(self.path).parent.mkdir(parents=True, exist_ok=True)
@@ -59,11 +59,19 @@ class Store:
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA foreign_keys = ON")
         self.conn.executescript(SCHEMA)
-        try:
-            self.conn.executescript(FTS_SCHEMA)
-            self.fts = True
-        except sqlite3.OperationalError:
-            self.fts = False
+        self.fts = False
+        if fts:
+            existed = self.conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE name='utterances_fts'").fetchone()
+            try:
+                self.conn.executescript(FTS_SCHEMA)
+                self.fts = True
+            except sqlite3.OperationalError:
+                pass
+            if self.fts and not existed:
+                # 인덱스 없이 만들어진 DB(초기 데이터 등)를 열면 기존 발언으로 인덱스를 채운다
+                with self.conn:
+                    self.conn.execute("INSERT INTO utterances_fts(utterances_fts) VALUES('rebuild')")
 
     @contextmanager
     def tx(self) -> Iterator[sqlite3.Connection]:
@@ -219,6 +227,21 @@ class Store:
                  FROM utterances GROUP BY speaker_name, speaker_type
                  ORDER BY n_utts DESC"""
         return [dict(r) for r in self.conn.execute(sql)]
+
+    def content_hash(self) -> str:
+        """수집 데이터 내용 해시(가상 예시 제외). 변경 여부 판단용."""
+        import hashlib
+        h = hashlib.sha256()
+        for r in self.conn.execute(
+                "SELECT id, title, date, agendas_json, text_status FROM meetings "
+                "WHERE is_sample=0 ORDER BY id"):
+            h.update(repr(tuple(r)).encode())
+        for r in self.conn.execute(
+                "SELECT u.meeting_id, u.idx, u.speaker_name, u.text FROM utterances u "
+                "JOIN meetings m ON m.id=u.meeting_id WHERE m.is_sample=0 "
+                "ORDER BY u.meeting_id, u.idx"):
+            h.update(repr(tuple(r)).encode())
+        return h.hexdigest()
 
     def stats(self) -> dict:
         c = self.conn
