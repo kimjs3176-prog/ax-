@@ -95,8 +95,36 @@ NON_COMMITMENT = re.compile(r"(말씀드리겠습니다|답변드리겠습니다
                             r"인사드리겠습니다|보고를\s*드리겠습니다)")
 
 
+# 국감 사후 점검 대상이 되는 '구체적 조치' 약속: 조치 동사 + (하/드리)겠습니다
+COMMITMENT_CONCRETE = re.compile(
+    r"(검토|재검토|개선|보완|추진|마련|제출|보고|점검|시정|협의|확인|반영|조치|확대|강화|도입|구축|"
+    r"정비|지원|개정|파악|조사|해결|수립|배정|편성|확보|정리|재정비|보강|설치|감독|관리|논의)"
+    r"(을|를|이|가|도|하도록|되도록|토록|해서|하여)?\s*(하|드리|되도록\s*하|토록\s*하|해\s*나가|해\s*드리)겠습니다")
+# 인사·의례 문장(업무보고 인사말, 감사 인사 등)은 약속으로 보지 않는다
+COURTESY_SENT = re.compile(r"(감사(드립|합)니다|감사의 말씀|존경하는 .{0,30}(위원장|위원)님|바쁘신 (일정|가운데)|"
+                           r"최선을 다하겠습니다|노력하겠습니다|인사(를|말씀)|수고(하셨|많으셨))")
+REPORT_FOLLOWUP = re.compile(r"(별도|서면|추후|나중에|결과|자료|다시|따로|정리해|정리하여|파악해|확인해|검토해|"
+                             r"조사해|알아보고|챙겨서|말씀하신)")
+_SENT_END = re.compile(r"(?<=[.?!])\s+|(?<=습니다)\s+|(?<=겠습니다)\s*")
+
+
+def commitment_sentences(text: str) -> list[str]:
+    """발언에서 구체적 조치 약속이 담긴 문장만 추출."""
+    out = []
+    for s in _SENT_END.split(text):
+        s = s.strip()
+        m = COMMITMENT_CONCRETE.search(s) if len(s) >= 12 else None
+        if not m or COURTESY_SENT.search(s):
+            continue
+        # '보고드리겠습니다'는 업무보고 시작 인사로도 쓰이므로 사후 보고 맥락이 있을 때만 약속으로 본다
+        if m.group(1) == "보고" and not REPORT_FOLLOWUP.search(s):
+            continue
+        out.append(s)
+    return out
+
+
 def is_commitment(text: str) -> bool:
-    return bool(COMMITMENT_PATTERNS.search(NON_COMMITMENT.sub("", text)))
+    return bool(commitment_sentences(text))
 
 
 # 자료 요구
@@ -110,13 +138,14 @@ QUESTION_PATTERNS = re.compile(
 
 ROLE_TYPES = (
     # (정규식, speaker_type)
-    (re.compile(r"^위원장(대리)?$"), "chair"),
+    # 회의 진행자: 위원장·소위원장·조정위원장(및 대리). '원장'으로 끝나 기관장으로 오인되지 않게 먼저 판별
+    (re.compile(r"^(소|조정|분과)?위원장(대리)?$"), "chair"),
     (re.compile(r"^위원$"), "member"),
-    (re.compile(r"(장관|차관|청장|실장|국장|본부장|원장|사장|이사장|회장|대표|처장|정책관|단장|과장)$"),
-     "official"),
     (re.compile(r"전문위원|입법조사관"), "staff"),
     (re.compile(r"^증인|증인$"), "witness"),
-    (re.compile(r"^참고인|참고인$"), "reference"),
+    (re.compile(r"^(참고인|진술인)|(참고인|진술인)$"), "reference"),
+    (re.compile(r"(장관|차관|청장|실장|국장|본부장|원장|사장|이사장|회장|대표이사|대표|이사|처장|"
+                r"정책관|단장|과장|관장|소장|총장)$"), "official"),
 )
 
 
@@ -124,8 +153,18 @@ def issue_label(issue_id: str) -> str:
     return ISSUES[issue_id][0]
 
 
+# 쟁점 키워드를 품은 고유명사(기관·위원회명)와 합성어: 집계 전에 지워 오탐을 막는다.
+# 예) '축산' ⊂ 농림축산식품부, '산림' ⊂ 산림청, '어촌' ⊂ 농어촌
+_ISSUE_MASK = re.compile("|".join(sorted(
+    {re.escape(x) for name, aliases in ORGANIZATIONS.items() for x in (name, *aliases) if len(x) > 2}
+    | {re.escape(x) for x in ("농림축산식품해양수산위원회", "농림축산식품해양수산", "농림축산식품",
+                              "농해수위", "농어촌")},
+    key=len, reverse=True)))
+
+
 def match_issues(text: str) -> dict[str, int]:
-    """텍스트에서 이슈별 키워드 출현 횟수."""
+    """텍스트에서 이슈별 키워드 출현 횟수(기관·위원회명 속 키워드는 제외)."""
+    text = _ISSUE_MASK.sub(" ", text)
     hits: dict[str, int] = {}
     for iid, (_, _, kws) in ISSUES.items():
         n = sum(text.count(k) for k in kws)

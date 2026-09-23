@@ -157,8 +157,10 @@ class Store:
         return d
 
     def meetings(self, date_from: str = "", date_to: str = "", q: str = "",
-                 status: str = "") -> list[dict]:
+                 status: str = "", session: int | None = None) -> list[dict]:
         sql, args = "SELECT * FROM meetings WHERE 1=1", []
+        if session:
+            sql += " AND session_no = ?"; args.append(session)
         if date_from:
             sql += " AND date >= ?"; args.append(date_from)
         if date_to:
@@ -175,10 +177,16 @@ class Store:
         return self._meeting(r) if r else None
 
     def utterances(self, meeting_id: str | None = None, speaker: str = "", org: str = "",
-                   only_commitments: bool = False, only_questions: bool = False) -> list[dict]:
-        sql = ("SELECT u.*, m.date AS meeting_date, m.title AS meeting_title "
+                   only_commitments: bool = False, only_questions: bool = False,
+                   session: int | None = None, issue: str = "") -> list[dict]:
+        sql = ("SELECT u.*, m.date AS meeting_date, m.title AS meeting_title, "
+               "m.session_no AS session_no "
                "FROM utterances u JOIN meetings m ON m.id = u.meeting_id WHERE 1=1")
         args: list[Any] = []
+        if session:
+            sql += " AND m.session_no=?"; args.append(session)
+        if issue:
+            sql += " AND u.issues_json LIKE ?"; args.append(f'%"{issue}"%')
         if meeting_id:
             sql += " AND u.meeting_id=?"; args.append(meeting_id)
         if speaker:
@@ -193,15 +201,18 @@ class Store:
         return [self._utt(r) for r in self.conn.execute(sql, args)]
 
     def search(self, query: str, limit: int = 50, speaker_type: str = "",
-               date_from: str = "", date_to: str = "") -> list[dict]:
+               date_from: str = "", date_to: str = "", session: int | None = None) -> list[dict]:
         terms = [t for t in query.split() if t]
         if not terms:
             return []
         long_terms = [t for t in terms if len(t) >= 3]
         short_terms = [t for t in terms if len(t) < 3]
-        sql = ("SELECT u.*, m.date AS meeting_date, m.title AS meeting_title "
+        sql = ("SELECT u.*, m.date AS meeting_date, m.title AS meeting_title, "
+               "m.session_no AS session_no "
                "FROM utterances u JOIN meetings m ON m.id = u.meeting_id WHERE 1=1")
         args: list[Any] = []
+        if session:
+            sql += " AND m.session_no=?"; args.append(session)
         if not self.fts:
             short_terms, long_terms = terms, []
         if long_terms:
@@ -233,6 +244,26 @@ class Store:
         r = self.conn.execute("SELECT payload FROM summaries WHERE meeting_id=? AND kind=?",
                               (meeting_id, kind)).fetchone()
         return json.loads(r["payload"]) if r else None
+
+    def sessions(self) -> list[dict]:
+        """회기 목록(최근 순). 정기회는 매년 9월 1일 소집되므로 첫 회의가 9월인 회기를 정기회로 본다."""
+        rows = self.conn.execute(
+            """SELECT m.session_no, MAX(m.dae) AS dae, MIN(m.date) AS date_from,
+                      MAX(m.date) AS date_to, COUNT(*) AS meetings,
+                      SUM(m.title LIKE '%소위원회%') AS subcommittee_meetings,
+                      (SELECT COUNT(*) FROM utterances u JOIN meetings m2 ON m2.id=u.meeting_id
+                        WHERE m2.session_no=m.session_no) AS utterances
+               FROM meetings m WHERE m.session_no IS NOT NULL
+               GROUP BY m.session_no ORDER BY m.session_no DESC""").fetchall()
+        out = []
+        for r in rows:
+            d = dict(r)
+            d["kind"] = "정기회" if (d["date_from"] or "")[5:7] == "09" else "임시회"
+            d["label"] = (f"제{d['session_no']}회 {d['kind']} "
+                          f"({(d['date_from'] or '')[:10].replace('-', '.')}~"
+                          f"{(d['date_to'] or '')[5:10].replace('-', '.')})")
+            out.append(d)
+        return out
 
     def speakers(self) -> list[dict]:
         sql = """SELECT speaker_name, speaker_role, speaker_type, org,

@@ -1,10 +1,11 @@
 """회의 요약, 핵심안건 정리, 국정감사 대비 브리핑 생성(규칙 기반)."""
 from __future__ import annotations
 
+import json
 from collections import Counter, defaultdict
 from typing import Any
 
-from .lexicon import ISSUES, ORGANIZATIONS, issue_label
+from .lexicon import ISSUES, ORGANIZATIONS, commitment_sentences, issue_label
 from .nlp import extractive_summary, keywords, truncate
 from .store import Store
 
@@ -67,7 +68,7 @@ def commitment_view(u: dict) -> dict:
     return {
         "meeting_id": u["meeting_id"], "date": u.get("meeting_date"),
         "speaker": f"{u['speaker_role']} {u['speaker_name']}", "org": u["org"],
-        "text": truncate(u["text"], 260),
+        "text": truncate(" ".join(commitment_sentences(u["text"])[:2]) or u["text"], 260),
         "issues": [issue_label(i) for i in u["issues"]],
     }
 
@@ -127,9 +128,9 @@ def summarize_meeting(store: Store, meeting_id: str) -> dict[str, Any]:
 
 def briefing(store: Store, org: str = "", issue: str = "", keyword: str = "",
              member: str = "", date_from: str = "", date_to: str = "",
-             top: int = 10) -> dict[str, Any]:
+             top: int = 10, session: int | None = None) -> dict[str, Any]:
     """국정감사 대비 브리핑: 대상(기관/쟁점/키워드/위원) 관련 과거 회의록을 모아 정리."""
-    utts = store.utterances()
+    utts = store.utterances(session=session)
     issue_ids = set()
     if issue:
         issue_ids = {iid for iid, (label, parent, _) in ISSUES.items()
@@ -169,7 +170,7 @@ def briefing(store: Store, org: str = "", issue: str = "", keyword: str = "",
                 commitments.append(a)
 
     timeline = Counter(u["meeting_date"] for u in selected)
-    meetings_idx = {m["id"]: m for m in store.meetings()}
+    meetings_idx = {m["id"]: m for m in store.meetings(session=session)}
     meeting_list = sorted({u["meeting_id"] for u in selected},
                           key=lambda mid: meetings_idx[mid]["date"] or "", reverse=True)
     members = Counter(p["question"]["speaker_name"] for p in selected_pairs)
@@ -181,7 +182,7 @@ def briefing(store: Store, org: str = "", issue: str = "", keyword: str = "",
     return {
         "target": target,
         "filters": {"org": org, "issue": issue, "keyword": keyword, "member": member,
-                    "date_from": date_from, "date_to": date_to},
+                    "date_from": date_from, "date_to": date_to, "session": session},
         "counts": {"utterances": len(selected), "meetings": len(meeting_list),
                    "qa_pairs": len(selected_pairs), "commitments": len(commitments)},
         "key_issues": _issue_rank(selected),
@@ -203,6 +204,8 @@ def briefing_markdown(b: dict) -> str:
     c = b["counts"]
     L.append(f"- 분석 범위: 회의 {c['meetings']}건, 발언 {c['utterances']}회, "
              f"질의·답변 {c['qa_pairs']}쌍, 이행약속 답변 {c['commitments']}건")
+    if b["filters"].get("session"):
+        L.append(f"- 회기: 제{b['filters']['session']}회")
     if b["filters"]["date_from"] or b["filters"]["date_to"]:
         L.append(f"- 기간: {b['filters']['date_from'] or '처음'} ~ {b['filters']['date_to'] or '현재'}")
     L += ["", "## 1. 핵심 쟁점"]
@@ -289,3 +292,84 @@ def issue_network(store: Store, min_weight: int = 1) -> dict:
     return {"nodes": list(nodes.values()),
             "edges": [{"source": a, "target": b, "weight": w}
                       for (a, b), w in edges.items() if w >= min_weight]}
+
+
+def issue_by_session(store: Store) -> dict:
+    """회기 × 쟁점 언급량(히트맵용). 하위 쟁점만 집계."""
+    rows = store.conn.execute(
+        "SELECT m.session_no, u.issues_json FROM utterances u JOIN meetings m ON m.id=u.meeting_id "
+        "WHERE m.session_no IS NOT NULL AND u.issues_json != '{}'").fetchall()
+    matrix: dict[str, Counter] = defaultdict(Counter)
+    for r in rows:
+        for iid, n in json.loads(r["issues_json"]).items():
+            if ISSUES[iid][1]:
+                matrix[iid][r["session_no"]] += n
+    sessions = sorted({sn for c in matrix.values() for sn in c})
+    order = sorted(matrix, key=lambda i: -sum(matrix[i].values()))
+    return {
+        "sessions": sessions,
+        "issues": [{"id": i, "label": ISSUES[i][0], "parent": ISSUES[i][1],
+                    "total": sum(matrix[i].values()),
+                    "by_session": {str(k): v for k, v in matrix[i].items()}} for i in order],
+    }
+
+
+def issue_detail(store: Store, issue_id: str, session: int | None = None, limit: int = 20) -> dict:
+    """쟁점 상세: 회기별 추이, 관련 기관·위원, 대표 질의(요약)와 정부 약속."""
+    if issue_id not in ISSUES:
+        raise KeyError(issue_id)
+    label, parent, _ = ISSUES[issue_id]
+    ids = {issue_id} | {i for i, v in ISSUES.items() if v[1] == issue_id}
+    focus = {k for i in ids for k in ISSUES[i][2]}
+    seen, uniq = set(), []
+    for i in ids:
+        for u in store.utterances(issue=i, session=session):
+            if u["id"] not in seen:
+                seen.add(u["id"]); uniq.append(u)
+    by_session = Counter(u["session_no"] for u in uniq if u["session_no"])
+    orgs, members = Counter(), Counter()
+    for u in uniq:
+        orgs.update(set(u["orgs"]) | ({u["org"]} if u["org"] else set()))
+        if u["speaker_type"] == "member":
+            members[u["speaker_name"]] += 1
+    weight = lambda u: sum(u["issues"].get(i, 0) for i in ids)
+    questions = sorted((u for u in uniq if u["is_question"]),
+                       key=lambda u: (-weight(u), -(len(u["text"]))))
+    commitments = sorted((u for u in uniq if u["is_commitment"]),
+                         key=lambda u: (u["meeting_date"] or "", weight(u)), reverse=True)
+
+    def view(u: dict) -> dict:
+        return {"meeting_id": u["meeting_id"], "date": u["meeting_date"], "session": u["session_no"],
+                "speaker": u["speaker_name"] + " 위원" if u["speaker_type"] == "member"
+                else f"{u['speaker_role']} {u['speaker_name']}",
+                "speaker_type": u["speaker_type"],
+                "text": " ".join(extractive_summary(u["text"], 2, focus=focus)) or truncate(u["text"], 220)}
+
+    return {
+        "id": issue_id, "label": label, "parent": ISSUES[parent][0] if parent else None,
+        "children": [{"id": i, "label": v[0]} for i, v in ISSUES.items() if v[1] == issue_id],
+        "keywords": sorted(focus), "count": len(uniq),
+        "meetings": len({u["meeting_id"] for u in uniq}),
+        "by_session": [{"session": k, "count": v} for k, v in sorted(by_session.items())],
+        "orgs": [{"name": n, "count": c} for n, c in orgs.most_common(8)],
+        "members": [{"name": n, "count": c} for n, c in members.most_common(8)],
+        "questions": [view(u) for u in questions[:limit]],
+        "commitments": [view(u) for u in commitments[:limit]],
+    }
+
+
+def overview(store: Store, recent: int = 6) -> dict:
+    """대시보드용: 최근 회의(요약 한 줄·핵심 쟁점), 최근 정부 약속."""
+    out_m = []
+    for m in store.meetings()[:recent]:
+        s = store.summary(m["id"], "rule") or {}
+        out_m.append({"id": m["id"], "date": m["date"], "title": m["title"],
+                      "session_no": m["session_no"], "agendas": m["agendas"][:3],
+                      "n_agendas": len(m["agendas"]),
+                      "issues": [i["label"] for i in (s.get("key_issues") or [])[:3]],
+                      "headline": (s.get("key_points") or [""])[0]})
+    rows = store.conn.execute(
+        "SELECT u.*, m.date AS meeting_date, m.title AS meeting_title, m.session_no AS session_no "
+        "FROM utterances u JOIN meetings m ON m.id=u.meeting_id "
+        "WHERE u.is_commitment=1 ORDER BY m.date DESC, u.idx DESC LIMIT ?", (recent * 2,)).fetchall()
+    return {"meetings": out_m, "commitments": [commitment_view(store._utt(r)) for r in rows]}

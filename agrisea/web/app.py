@@ -104,8 +104,23 @@ def create_app(settings: Settings | None = None, store: Store | None = None) -> 
                 "data_updated": seed_meta().get("exported_at")}
 
     @app.get("/api/meetings")
-    def meetings(date_from: str = "", date_to: str = "", q: str = ""):
-        return store.meetings(date_from, date_to, q)
+    def meetings(date_from: str = "", date_to: str = "", q: str = "", session: int | None = None):
+        return store.meetings(date_from, date_to, q, session=session)
+
+    @app.get("/api/sessions")
+    def sessions():
+        """회기 목록(최근 순): 회기 번호, 정기회/임시회, 기간, 회의 수."""
+        return cached("sessions")
+
+    @app.get("/api/overview")
+    def overview():
+        """대시보드: 최근 회의와 최근 정부 약속."""
+        return cached("overview")
+
+    @app.get("/api/issue-trend")
+    def issue_trend():
+        """회기 × 쟁점 언급량(히트맵)."""
+        return cached("issue_by_session")
 
     @app.get("/api/meetings/{meeting_id}")
     def meeting(meeting_id: str):
@@ -137,14 +152,22 @@ def create_app(settings: Settings | None = None, store: Store | None = None) -> 
 
     @app.get("/api/search")
     def search(q: str = Query(..., min_length=1), speaker_type: str = "", date_from: str = "",
-               date_to: str = "", limit: int = Query(50, le=500)):
-        rows = store.search(q, limit, speaker_type, date_from, date_to)
+               date_to: str = "", limit: int = Query(50, le=500), session: int | None = None):
+        rows = store.search(q, limit, speaker_type, date_from, date_to, session=session)
         return {"query": q, "count": len(rows), "results": rows,
                 "issues": analysis._issue_rank(rows, 6)}
 
     @app.get("/api/issues")
     def issues():
         return cached("issues")
+
+    @app.get("/api/issues/{issue_id}")
+    def issue(issue_id: str, session: int | None = None):
+        """쟁점 상세: 회기별 추이, 관련 기관·위원, 대표 질의, 정부 약속."""
+        try:
+            return analysis.issue_detail(store, issue_id, session)
+        except KeyError:
+            raise HTTPException(404, "쟁점을 찾을 수 없습니다.") from None
 
     @app.get("/api/orgs")
     def orgs():
@@ -156,8 +179,10 @@ def create_app(settings: Settings | None = None, store: Store | None = None) -> 
 
     @app.get("/api/briefing")
     def briefing(org: str = "", issue: str = "", keyword: str = "", member: str = "",
-                 date_from: str = "", date_to: str = "", format: str = "json"):
-        b = analysis.briefing(store, org, issue, keyword, member, date_from, date_to)
+                 date_from: str = "", date_to: str = "", format: str = "json",
+                 session: int | None = None):
+        b = analysis.briefing(store, org, issue, keyword, member, date_from, date_to,
+                              session=session)
         if format == "md":
             return PlainTextResponse(analysis.briefing_markdown(b),
                                      media_type="text/markdown; charset=utf-8")
