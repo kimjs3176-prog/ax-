@@ -5,8 +5,8 @@ import json
 from collections import Counter, defaultdict
 from typing import Any
 
-from .lexicon import ISSUES, ORGANIZATIONS, commitment_sentences, issue_label
-from .nlp import extractive_summary, keywords, truncate
+from .lexicon import ISSUES, ORGANIZATIONS, QUESTION_PATTERNS, commitment_sentences, issue_label
+from .nlp import SENT_SPLIT, extractive_summary, keywords, truncate
 from .store import Store
 
 
@@ -367,59 +367,98 @@ def _neighbors(store: Store, u: dict, before: int = 8, after: int = 8) -> list[d
     return [store._utt(r) for r in rows]
 
 
+_ANSWERERS = ("official", "witness")
+
+
+def _exchange(store: Store, anchor: dict) -> list[dict]:
+    """anchor가 속한 '한 위원의 질의 순서'를 찾는다: 위원장 발언이나 다른 위원 발언이 나오기 전까지
+    같은 위원과 정부 측이 주고받은 연속 발언. 질의–답변이 실제로 이어진 구간만 대화로 묶기 위함."""
+    near = _neighbors(store, anchor, before=12, after=12)
+    pos = next(i for i, u in enumerate(near) if u["id"] == anchor["id"])
+    member = anchor["speaker_name"] if anchor["speaker_type"] == "member" else None
+    lo = pos
+    while lo > 0:
+        u = near[lo - 1]
+        if u["speaker_type"] in _ANSWERERS:
+            lo -= 1
+        elif u["speaker_type"] == "member" and member in (None, u["speaker_name"]):
+            member = u["speaker_name"]; lo -= 1
+        else:
+            break
+    hi = pos
+    while hi + 1 < len(near):
+        u = near[hi + 1]
+        if u["speaker_type"] in _ANSWERERS or (u["speaker_type"] == "member" and u["speaker_name"] == member):
+            hi += 1
+        else:
+            break
+    block = near[lo:hi + 1]
+    # 첫 위원 발언부터 시작(앞쪽의 정부 측 발언은 다른 질의에 대한 답)
+    first = next((i for i, u in enumerate(block) if u["speaker_type"] == "member"), None)
+    if member is None or first is None:
+        return []
+    block = block[first:]
+    # anchor 바로 앞의 위원 질의부터 최대 4개 발언(질의 → 답변 → 추가 질의 → 답변)
+    at = next(i for i, u in enumerate(block) if u["id"] == anchor["id"])
+    start = max(i for i in range(at + 1) if block[i]["speaker_type"] == "member")
+    return block[start:start + 4]
+
+
+def _question_text(text: str) -> str:
+    """위원 발언에서 답변을 부른 부분: 끝쪽 물음 문장(없으면 마지막 두 문장)."""
+    sents = [x.strip() for x in SENT_SPLIT.split(text) if x.strip()]
+    qs = [i for i, x in enumerate(sents) if x.endswith("?") or QUESTION_PATTERNS.search(x)]
+    if qs:
+        i = qs[-1]
+        picked = sents[max(0, i - 1):i + 1] if len(sents[i]) < 60 else [sents[i]]
+    else:
+        picked = sents[-2:]
+    return truncate(" ".join(picked), 240)
+
+
+def _answer_text(u: dict) -> str:
+    """정부 측 발언의 첫머리(바로 앞 질의에 대한 직접 답). 약속 문장이 뒤에 있으면 덧붙인다."""
+    sents = [x.strip() for x in SENT_SPLIT.split(u["text"]) if x.strip()]
+    head = sents[:2]
+    text = " ".join(head)
+    if u["is_commitment"]:
+        promise = [c for c in commitment_sentences(u["text"]) if c not in head][:1]
+        if promise:
+            text += " … " + promise[0]
+    return truncate(text, 300)
+
+
 def issue_dialogue(store: Store, questions: list[dict], commitments: list[dict],
-                   focus: set[str], limit: int = 12) -> list[dict]:
-    """쟁점 대화: 정부 약속은 그 앞의 위원 질의와, 대표 질의는 뒤따른 정부 답변과 묶는다.
-    화면에서 질의는 왼쪽, 답변·약속은 오른쪽 말풍선으로 보인다."""
-    threads: dict[tuple, dict] = {}
-
-    def add(q: dict | None, a: dict | None) -> None:
-        key = (q or a)["meeting_id"], (q or a)["idx"]
-        if key in threads and not (a and a["is_commitment"]):
-            return
-        threads[key] = {"q": q, "a": a}
-
-    for c in commitments:
-        near = _neighbors(store, c, before=30, after=0)
-        # 바로 앞 질의(물음)를 우선, 없으면 짧은 맞장구('이상입니다')가 아닌 위원 발언
-        members = [u for u in reversed(near[:-1]) if u["speaker_type"] == "member"]
-        q = next((u for u in members if u["is_question"]), None) or \
-            next((u for u in members if len(u["text"]) >= 40), None)
-        add(q, c)
-    for q in questions:
-        near = [u for u in _neighbors(store, q, before=0) if u["idx"] > q["idx"]]
-        a = None
-        for u in near:
-            if u["speaker_type"] == "member":
-                break
-            if u["speaker_type"] in ("official", "witness"):
-                a = u
-                break
-        add(q, a)
-
-    def qv(u: dict) -> dict:
-        return {"speaker": u["speaker_name"] + " 위원",
-                "text": " ".join(extractive_summary(u["text"], 2, focus=focus)) or truncate(u["text"], 220)}
-
-    def av(u: dict) -> dict:
-        text = (" ".join(commitment_sentences(u["text"])[:2]) if u["is_commitment"] else
-                " ".join(extractive_summary(u["text"], 2, focus=focus)))
-        return {"speaker": f"{u['speaker_role']} {u['speaker_name']}", "org": u["org"],
-                "commitment": u["is_commitment"], "text": truncate(text or u["text"], 260)}
-
-    # 질의와 약속이 모두 있는 대화 > 질의와 답변 > 한쪽만 있는 것(업무보고 중 약속 등)
-    rank = lambda t: (2 if t["q"] and t["a"] and t["a"]["is_commitment"] else
-                      1 if t["q"] and t["a"] else 0)
-    chosen = sorted(threads.values(), key=rank, reverse=True)[:limit]
-    out = []
-    for t in chosen:
-        base = t["q"] or t["a"]
-        out.append({"meeting_id": base["meeting_id"], "date": base["meeting_date"],
-                    "session": base["session_no"], "idx": base["idx"],
-                    "question": qv(t["q"]) if t["q"] else None,
-                    "answer": av(t["a"]) if t["a"] else None})
-    out.sort(key=lambda d: (d["date"] or "", -d["idx"]), reverse=True)
-    return out
+                   focus: set[str], limit: int = 10) -> list[dict]:
+    """쟁점 대화: 정부 약속·대표 질의가 나온 '한 위원의 질의 순서'를 연속 발언 그대로 보여 준다.
+    화면에서 위원 질의는 왼쪽, 정부 답변·약속은 오른쪽 말풍선."""
+    seen, found = set(), []
+    for anchor in [*commitments, *questions]:
+        turns = _exchange(store, anchor)
+        if not any(t["speaker_type"] in _ANSWERERS for t in turns):
+            continue
+        ids = {t["id"] for t in turns}
+        if ids & seen:  # 같은 질의 순서에서 겹치는 대화는 한 번만
+            continue
+        seen |= ids
+        text = " ".join(t["text"] for t in turns)
+        found.append({
+            # 약속 포함 > 쟁점 표현 > '예.' 같은 짧은 대답이 아닌 실질 답변 수
+            "rank": (any(t["is_commitment"] for t in turns), min(sum(text.count(k) for k in focus), 5),
+                     sum(1 for t in turns if t["speaker_type"] in _ANSWERERS and len(t["text"]) > 40)),
+            "meeting_id": anchor["meeting_id"], "date": anchor["meeting_date"],
+            "session": anchor["session_no"], "idx": turns[0]["idx"],
+            "turns": [{"side": "q", "speaker": t["speaker_name"] + " 위원", "text": _question_text(t["text"])}
+                      if t["speaker_type"] == "member" else
+                      {"side": "a", "speaker": f"{t['speaker_role']} {t['speaker_name']}",
+                       "commitment": t["is_commitment"], "text": _answer_text(t)}
+                      for t in turns],
+        })
+    # 약속이 있고 쟁점 표현이 많이 나온 대화를 고른 뒤, 최근 회의 순·회의 안에서는 발언 순으로
+    found.sort(key=lambda d: d["rank"], reverse=True)
+    chosen = [{k: v for k, v in d.items() if k != "rank"} for d in found[:limit]]
+    chosen.sort(key=lambda d: (d["date"] or "", -d["idx"]), reverse=True)
+    return chosen
 
 
 def overview(store: Store, recent: int = 6) -> dict:

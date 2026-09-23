@@ -42,5 +42,6 @@ def test_sessions_overview_and_issue_detail(store, settings):
 def test_issue_dialogue_pairs_question_and_answer(store, settings):
     d = TestClient(create_app(settings, store)).get("/api/issues/rice").json()
     assert d["dialogue"]
-    t = next(t for t in d["dialogue"] if t["question"] and t["answer"])
-    assert t["question"]["speaker"].endswith("위원") and t["answer"]["speaker"]
+    t = d["dialogue"][0]
+    assert t["turns"][0]["side"] == "q" and t["turns"][0]["speaker"].endswith("위원")
+    assert any(x["side"] == "a" for x in t["turns"])
