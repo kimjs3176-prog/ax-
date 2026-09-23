@@ -13,18 +13,57 @@ from .ontology import build_graph, to_ntriples_gz
 from .store import Store
 
 # 사전 계산 형식이 바뀌면 올린다(초기 데이터를 다시 만들게 함).
-PRECOMPUTE_VERSION = 1
+PRECOMPUTE_VERSION = 2  # 2: 발언자 역할 재분류, 회기별 쟁점·개요 집계
 
 CACHED_VIEWS: dict[str, Callable[[Store], object]] = {
     "issues": analysis.issue_overview,
     "orgs": analysis.org_overview,
     "graph": analysis.issue_network,
     "speakers": lambda s: s.speakers(),
+    "sessions": lambda s: s.sessions(),
+    "issue_by_session": analysis.issue_by_session,
+    "overview": analysis.overview,
 }
+
+
+def reclassify(store: Store) -> int:
+    """저장된 발언의 발언자 유형·소속·질의/약속 표시를 현재 규칙으로 다시 계산(PDF 재수집 없이)."""
+    import json
+
+    from .lexicon import (DATA_REQUEST_PATTERNS, QUESTION_PATTERNS, classify_role, is_commitment,
+                          match_issues, match_organizations, org_from_role)
+    from .parser import clean_utterance_text
+    rows = store.conn.execute("SELECT id, speaker_role, speaker_type, org, text, is_question, "
+                              "is_commitment, is_data_request, issues_json, orgs_json "
+                              "FROM utterances").fetchall()
+    updates = []
+    for r in rows:
+        text = clean_utterance_text(r["text"])
+        issues = json.dumps(match_issues(text), ensure_ascii=False)
+        orgs = json.dumps(match_organizations(text), ensure_ascii=False)
+        stype = classify_role(r["speaker_role"])
+        org = org_from_role(r["speaker_role"]) if stype in ("official", "witness", "reference", "other") \
+            else None
+        q = int(stype == "member" and bool(QUESTION_PATTERNS.search(text)))
+        d = int(stype in ("member", "chair") and bool(DATA_REQUEST_PATTERNS.search(text)))
+        c = int(stype in ("official", "witness") and is_commitment(text))
+        new = (stype, org, q, c, d, text, issues, orgs)
+        if new != (r["speaker_type"], r["org"], r["is_question"], r["is_commitment"],
+                   r["is_data_request"], r["text"], r["issues_json"], r["orgs_json"]):
+            updates.append((*new, r["id"]))
+    if updates:
+        with store.tx() as conn:
+            conn.executemany("UPDATE utterances SET speaker_type=?, org=?, is_question=?, "
+                             "is_commitment=?, is_data_request=?, text=?, issues_json=?, "
+                             "orgs_json=? WHERE id=?", updates)
+            conn.execute("DELETE FROM kv")
+            conn.execute("DELETE FROM summaries WHERE kind='rule'")
+    return len(updates)
 
 
 def precompute(store: Store, kg_path: Path | None = None,
                progress: Callable[[str], None] = print) -> dict:
+    fixed = reclassify(store)
     n = 0
     for m in store.meetings(status="parsed"):
         if store.summary(m["id"], "rule") is None:
@@ -32,11 +71,11 @@ def precompute(store: Store, kg_path: Path | None = None,
             n += 1
     for key, fn in CACHED_VIEWS.items():
         store.kv_set(key, fn(store))
-    out = {"summaries": n, "views": list(CACHED_VIEWS)}
+    out = {"reclassified": fixed, "summaries": n, "views": list(CACHED_VIEWS)}
     if kg_path:
         g = build_graph(store, text_limit=500)
         to_ntriples_gz(g, kg_path)
         out["triples"] = len(g)
-    progress(f"사전 계산: 회의 요약 {n}건, 집계 {len(CACHED_VIEWS)}종"
+    progress(f"사전 계산: 발언자 재분류 {fixed}건, 회의 요약 {n}건, 집계 {len(CACHED_VIEWS)}종"
              + (f", 지식그래프 트리플 {out['triples']}개" if kg_path else ""))
     return out

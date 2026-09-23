@@ -72,6 +72,16 @@ def extract_pdf_text(data: bytes) -> str:
     return "\n".join((page.extract_text() or "") for page in reader.pages)
 
 
+# 본문 사이에 끼어든 쪽 머리말: '16 제439회-농림축산식품해양수산제2차(2026년9월17일)' 등
+RUNNING_HEADER = re.compile(
+    r"(?:\b\d{1,3}\s*)?제\s*\d+\s*회\s*-\s*[가-힣·\s]{2,40}?제\s*\d+\s*(?:차|호)\s*"
+    r"\(\s*\d{4}\s*년\s*\d{1,2}\s*월\s*\d{1,2}\s*일\s*\)(?:\s*\d{1,3}\b)?")
+
+
+def clean_utterance_text(text: str) -> str:
+    return re.sub(r"\s+", " ", RUNNING_HEADER.sub(" ", text)).strip()
+
+
 def clean_text(raw: str) -> str:
     lines = []
     for line in raw.replace("\r", "\n").split("\n"):
@@ -140,8 +150,7 @@ def parse_minutes(raw_text: str) -> MinutesDoc:
                     next_agenda = agenda_keys.index(key)
                     continue
             kept_lines.append(line)
-        body = TIME_NOTE.sub(" ", " ".join(kept_lines))
-        body = re.sub(r"\s+", " ", body).strip()
+        body = clean_utterance_text(TIME_NOTE.sub(" ", " ".join(kept_lines)))
 
         stype = classify_role(role)
         utt = Utterance(

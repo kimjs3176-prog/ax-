@@ -81,6 +81,12 @@ def keywords(texts: Iterable[str], top_k: int = 15,
     return scored[:top_k]
 
 
+# 인사·의례 문장(요약 대상에서 뒤로 미룸)
+COURTESY = re.compile(r"(감사드립니다|감사합니다|수고하셨습니다|수고 많으셨습니다|반갑습니다|인사(를|말씀)|"
+                      r"바쁘신 (일정|가운데)|성원이 되었으므로|개의하겠습니다|산회를 선포|"
+                      r"보고(를)? 드리겠습니다|말씀드리겠습니다|의사일정 제\d+항)")
+
+
 def extractive_summary(text: str, n: int = 3, focus: Iterable[str] = ()) -> list[str]:
     """중요 문장 n개를 원문 순서대로 반환(키워드 밀도 + 도메인 용어 + 수치 가중)."""
     sents = split_sentences(text)
@@ -98,7 +104,10 @@ def extractive_summary(text: str, n: int = 3, focus: Iterable[str] = ()) -> list
         domain = sum(1 for t in toks if t in _DOMAIN_TERMS or t in focus)
         numeric = 0.5 if re.search(r"\d", s) else 0.0
         issue = 0.5 * len(match_issues(s))
-        scores.append((base + domain + numeric + issue, i))
+        score = base + domain + numeric + issue
+        if COURTESY.search(s):
+            score *= 0.2
+        scores.append((score, i))
     top = sorted(scores, reverse=True)[:n]
     return [sents[i] for _, i in sorted(top, key=lambda x: x[1])]
 

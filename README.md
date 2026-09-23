@@ -21,11 +21,13 @@ SQLite(FTS5 전문검색) ──► RDF 지식그래프(OWL/SKOS, Turtle) ──
 
 | 기능 | 내용 |
 |---|---|
-| 회의내용 검색 | 발언 전문검색(여러 단어 AND), 발언자 유형(위원/정부)·기간 필터, 결과의 관련 쟁점 집계 |
+| 회기 선택 | 화면 상단에서 회기(예: 제418회 정기회)를 고르면 회의록·검색·쟁점 상세·브리핑이 그 회기로 좁혀짐 |
+| 대시보드 | 핵심 수치, 쟁점 순위 막대, **회기별 쟁점 흐름 히트맵**, 최근 회의(한 줄 요약), 최근 정부 약속 |
+| 회의내용 검색 | 발언 검색(여러 단어 AND), 위원 질의/정부 답변 구분, 회의별로 묶어 검색어 주변만 표시 |
 | 주요내용 정리 | 회의별 개요, 핵심 쟁점, 키워드, 중요 문장 추출 요약 |
 | 핵심안건 요약 | 안건별 발언 구간을 나눠 요약·발언자·쟁점 정리, 주요 질의–답변 쌍 선별 |
 | 국감 브리핑 | 피감기관·쟁점·키워드·위원·기간 조건으로 과거 회의록을 모아 핵심 쟁점, 주요 질의와 정부 답변, **이행약속 추적표**, 관심 위원, 관련 회의를 한 번에 정리(Markdown 다운로드) |
-| 쟁점 온톨로지 | 농해수위 쟁점 분류체계(SKOS, 상·하위 개념)와 쟁점–기관–위원 관계망 시각화 |
+| 쟁점 온톨로지 | 쟁점 분류(SKOS 상·하위) → 쟁점 상세: 회기별 추이, 관련 기관·질의 위원, 대표 질의, 정부 약속 / 관계망(주요 연결) |
 | SPARQL | 지식그래프 직접 질의(예시 질의 제공), 전체 그래프 TTL 내려받기 |
 | (선택) Claude 심층 요약 | `ANTHROPIC_API_KEY`가 있으면 회의별 핵심안건·쟁점·정부 입장·국감 후속 점검사항을 LLM으로 요약 |
 
@@ -45,7 +47,9 @@ ag:Person: Legislator / Chair / GovernmentOfficial / Witness / Staff ─ag:affil
 ```
 
 - 쟁점 분류체계와 피감기관 사전은 `agrisea/lexicon.py`에 있습니다. 키워드를 추가하면 재색인 시 그래프에 반영됩니다.
-- **이행약속(ag:Commitment)**: 정부·기관 답변 중 '~하겠습니다'류 약속 표현(의례적 표현 제외)을 자동 표시해 국감 결과보고서·시정처리 요구의 사후 점검 대상으로 추적합니다.
+- **이행약속(ag:Commitment)**: 정부·기관 답변 중 구체적 조치 약속(검토·개선·마련·제출·점검 등 + '하겠습니다')만 표시합니다.
+  인사말·의례 문장("감사드립니다", "최선을 다하겠습니다")과 업무보고 시작 인사("○○과장 보고드리겠습니다")는 제외합니다.
+- **회기**: 회의 제목의 「제○○회」로 묶고, 첫 회의가 9월인 회기를 정기회로 표시합니다.
 
 ## 설치
 
@@ -166,11 +170,14 @@ python -m agrisea sample
 | 메서드 | 경로 | 설명 |
 |---|---|---|
 | GET | `/api/stats` | 적재 현황 |
-| GET | `/api/meetings?date_from=&date_to=&q=` | 회의 목록 |
+| GET | `/api/sessions` | 회기 목록(정기회/임시회, 기간, 회의 수) |
+| GET | `/api/overview`, `/api/issue-trend` | 대시보드용 최근 회의·약속, 회기×쟁점 언급량 |
+| GET | `/api/issues/{쟁점id}?session=` | 쟁점 상세(회기별 추이, 관련 기관·위원, 대표 질의, 정부 약속) |
+| GET | `/api/meetings?session=&q=` | 회의 목록 |
 | GET | `/api/meetings/{id}` | 회의 + 전체 발언 |
 | GET | `/api/meetings/{id}/summary?llm=false` | 회의 요약(주요내용·핵심안건·질의답변·이행약속) |
-| GET | `/api/search?q=&speaker_type=&date_from=&date_to=` | 발언 검색 |
-| GET | `/api/briefing?org=&issue=&keyword=&member=&date_from=&date_to=&format=json\|md` | 국감 브리핑 |
+| GET | `/api/search?q=&speaker_type=&session=` | 발언 검색 |
+| GET | `/api/briefing?org=&issue=&keyword=&member=&session=&format=json\|md` | 국감 브리핑 |
 | GET | `/api/issues`, `/api/taxonomy`, `/api/orgs`, `/api/speakers` | 쟁점·기관·발언자 집계 |
 | GET | `/api/graph` | 쟁점–기관–위원 관계망 |
 | POST | `/api/sparql` `{"query": "..."}` | 읽기 전용 SPARQL(SERVICE/갱신 구문 차단) |
