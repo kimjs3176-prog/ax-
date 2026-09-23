@@ -1,0 +1,256 @@
+"""회의 요약, 핵심안건 정리, 국정감사 대비 브리핑 생성(규칙 기반)."""
+from __future__ import annotations
+
+from collections import Counter, defaultdict
+from typing import Any
+
+from .lexicon import ISSUES, issue_label
+from .nlp import extractive_summary, keywords, truncate
+from .store import Store
+
+
+def _issue_rank(utts: list[dict], top: int = 8) -> list[dict]:
+    cnt: Counter = Counter()
+    for u in utts:
+        cnt.update(u["issues"])
+    out = []
+    for iid, n in cnt.most_common():
+        parent = ISSUES[iid][1]
+        out.append({"id": iid, "label": issue_label(iid), "count": n,
+                    "parent": issue_label(parent) if parent else None})
+    return out[:top]
+
+
+def _names(utts: list[dict]) -> set[str]:
+    return {u["speaker_name"] for u in utts} | {u["speaker_role"] for u in utts}
+
+
+def qa_pairs(utts: list[dict]) -> list[dict]:
+    """위원 질의 → 이어지는 정부측 답변 묶음."""
+    pairs: list[dict] = []
+    cur: dict | None = None
+    for u in utts:
+        if u["speaker_type"] == "member" and u["is_question"]:
+            cur = {"question": u, "answers": []}
+            pairs.append(cur)
+        elif u["speaker_type"] in ("official", "witness") and cur is not None:
+            cur["answers"].append(u)
+        elif u["speaker_type"] == "chair":
+            cur = None  # 위원장 발언 → 질의 순서 전환
+    return pairs
+
+
+def _pair_view(p: dict) -> dict:
+    q = p["question"]
+    ans = p["answers"]
+    return {
+        "meeting_id": q["meeting_id"],
+        "date": q.get("meeting_date"),
+        "member": q["speaker_name"],
+        "question": " ".join(extractive_summary(q["text"], 2)) or truncate(q["text"], 200),
+        "question_full": q["text"],
+        "answerer": f"{ans[0]['speaker_role']} {ans[0]['speaker_name']}" if ans else None,
+        "answer": " ".join(extractive_summary(" ".join(a["text"] for a in ans), 2)) if ans else None,
+        "commitment": any(a["is_commitment"] for a in ans),
+        "issues": [issue_label(i) for i in q["issues"]],
+    }
+
+
+def _pair_score(p: dict) -> float:
+    q = p["question"]
+    return (len(q["issues"]) * 2 + len(q["orgs"]) + min(len(q["text"]) / 300, 3)
+            + (2 if any(a["is_commitment"] for a in p["answers"]) else 0)
+            + (1 if q["is_data_request"] else 0))
+
+
+def commitment_view(u: dict) -> dict:
+    return {
+        "meeting_id": u["meeting_id"], "date": u.get("meeting_date"),
+        "speaker": f"{u['speaker_role']} {u['speaker_name']}", "org": u["org"],
+        "text": truncate(u["text"], 260),
+        "issues": [issue_label(i) for i in u["issues"]],
+    }
+
+
+def summarize_meeting(store: Store, meeting_id: str) -> dict[str, Any]:
+    m = store.meeting(meeting_id)
+    if not m:
+        raise KeyError(meeting_id)
+    utts = store.utterances(meeting_id=meeting_id)
+    members = Counter(u["speaker_name"] for u in utts if u["speaker_type"] == "member")
+    officials = Counter(f"{u['speaker_role']} {u['speaker_name']}" for u in utts
+                        if u["speaker_type"] in ("official", "witness"))
+    n_q = sum(u["is_question"] for u in utts)
+    n_c = sum(u["is_commitment"] for u in utts)
+    substantive = [u for u in utts if u["speaker_type"] != "chair"]
+    full_text = " ".join(u["text"] for u in substantive)
+
+    agenda_summaries = []
+    for i, a in enumerate(m["agendas"]):
+        a_utts = [u for u in substantive if u["agenda_idx"] == i]
+        if not a_utts:
+            agenda_summaries.append({"agenda": a, "summary": [], "speakers": [], "issues": []})
+            continue
+        agenda_summaries.append({
+            "agenda": a,
+            "summary": extractive_summary(" ".join(u["text"] for u in a_utts), 3),
+            "speakers": [n for n, _ in Counter(u["speaker_name"] for u in a_utts).most_common(6)],
+            "issues": [x["label"] for x in _issue_rank(a_utts, 4)],
+        })
+
+    pairs = sorted(qa_pairs(utts), key=_pair_score, reverse=True)
+    overview = (f"{m['date']} {m['title']} — 안건 {len(m['agendas'])}건, 발언 {len(utts)}회"
+                f"(위원 질의 {n_q}회, 이행약속 답변 {n_c}회), 질의 위원 {len(members)}명.")
+    if not utts:
+        overview = (f"{m['date']} {m['title']} — 회의록 본문이 아직 수집되지 않았습니다. "
+                    f"안건 {len(m['agendas'])}건.")
+    return {
+        "meeting": m,
+        "method": "rule-based",
+        "overview": overview,
+        "agendas": m["agendas"],
+        "key_issues": _issue_rank(substantive),
+        "keywords": [w for w, _ in keywords([full_text], 15, exclude=_names(utts))]
+                    if full_text else [],
+        "key_points": extractive_summary(full_text, 5) if full_text else [],
+        "agenda_summaries": agenda_summaries,
+        "qa_highlights": [_pair_view(p) for p in pairs[:8]],
+        "commitments": [commitment_view(u) for u in utts if u["is_commitment"]],
+        "data_requests": [{"member": u["speaker_name"], "text": truncate(u["text"], 200)}
+                          for u in utts if u["is_data_request"]],
+        "participants": {
+            "members": [{"name": n, "count": c} for n, c in members.most_common()],
+            "officials": [{"name": n, "count": c} for n, c in officials.most_common()],
+        },
+    }
+
+
+def briefing(store: Store, org: str = "", issue: str = "", keyword: str = "",
+             member: str = "", date_from: str = "", date_to: str = "",
+             top: int = 10) -> dict[str, Any]:
+    """국정감사 대비 브리핑: 대상(기관/쟁점/키워드/위원) 관련 과거 회의록을 모아 정리."""
+    utts = store.utterances()
+    issue_ids = set()
+    if issue:
+        issue_ids = {iid for iid, (label, parent, _) in ISSUES.items()
+                     if iid == issue or label == issue or parent == issue
+                     or (parent and ISSUES[parent][0] == issue)}
+
+    def keep(u: dict) -> bool:
+        if date_from and (u["meeting_date"] or "") < date_from:
+            return False
+        if date_to and (u["meeting_date"] or "") > date_to:
+            return False
+        if org and not (u["org"] == org or org in u["orgs"]):
+            return False
+        if issue_ids and not (issue_ids & set(u["issues"])):
+            return False
+        if keyword and keyword not in u["text"]:
+            return False
+        if member and u["speaker_name"] != member:
+            return False
+        return True
+
+    # 질의가 조건에 맞으면 그 답변도 포함(답변에 기관명이 없어도 맥락 유지)
+    by_meeting: dict[str, list[dict]] = defaultdict(list)
+    for u in utts:
+        by_meeting[u["meeting_id"]].append(u)
+    selected_pairs, selected = [], []
+    for mid, mu in by_meeting.items():
+        for p in qa_pairs(mu):
+            if keep(p["question"]) or (not member and any(keep(a) for a in p["answers"])):
+                selected_pairs.append(p)
+        selected.extend(u for u in mu if u["speaker_type"] != "chair" and keep(u))
+
+    commitments = [u for u in utts if u["is_commitment"] and keep(u)]
+    for p in selected_pairs:
+        for a in p["answers"]:
+            if a["is_commitment"] and a not in commitments:
+                commitments.append(a)
+
+    timeline = Counter(u["meeting_date"] for u in selected)
+    meetings_idx = {m["id"]: m for m in store.meetings()}
+    meeting_list = sorted({u["meeting_id"] for u in selected},
+                          key=lambda mid: meetings_idx[mid]["date"] or "", reverse=True)
+    members = Counter(p["question"]["speaker_name"] for p in selected_pairs)
+    pairs_sorted = sorted(selected_pairs, key=_pair_score, reverse=True)
+    all_text = " ".join(u["text"] for u in selected)
+
+    target = " / ".join(x for x in (org, issue and next(
+        (ISSUES[i][0] for i in ISSUES if i == issue), issue), keyword, member) if x) or "전체"
+    return {
+        "target": target,
+        "filters": {"org": org, "issue": issue, "keyword": keyword, "member": member,
+                    "date_from": date_from, "date_to": date_to},
+        "counts": {"utterances": len(selected), "meetings": len(meeting_list),
+                   "qa_pairs": len(selected_pairs), "commitments": len(commitments)},
+        "key_issues": _issue_rank(selected),
+        "keywords": [w for w, _ in keywords([all_text], 20, exclude=_names(utts))]
+                    if all_text else [],
+        "key_points": extractive_summary(all_text, 6) if all_text else [],
+        "top_questions": [_pair_view(p) for p in pairs_sorted[:top]],
+        "commitments": [commitment_view(u) for u in
+                        sorted(commitments, key=lambda u: u["meeting_date"] or "", reverse=True)],
+        "active_members": [{"name": n, "count": c} for n, c in members.most_common(10)],
+        "timeline": [{"date": d, "count": c} for d, c in sorted(timeline.items())],
+        "meetings": [{"id": mid, "date": meetings_idx[mid]["date"],
+                      "title": meetings_idx[mid]["title"]} for mid in meeting_list],
+    }
+
+
+def briefing_markdown(b: dict) -> str:
+    L = [f"# 국정감사 대비 브리핑: {b['target']}", ""]
+    c = b["counts"]
+    L.append(f"- 분석 범위: 회의 {c['meetings']}건, 발언 {c['utterances']}회, "
+             f"질의·답변 {c['qa_pairs']}쌍, 이행약속 답변 {c['commitments']}건")
+    if b["filters"]["date_from"] or b["filters"]["date_to"]:
+        L.append(f"- 기간: {b['filters']['date_from'] or '처음'} ~ {b['filters']['date_to'] or '현재'}")
+    L += ["", "## 1. 핵심 쟁점"]
+    for i in b["key_issues"]:
+        L.append(f"- **{i['label']}** ({i['count']}회)" + (f" · 상위: {i['parent']}" if i["parent"] else ""))
+    if b["keywords"]:
+        L += ["", "주요 키워드: " + ", ".join(b["keywords"])]
+    L += ["", "## 2. 주요 내용"]
+    L += [f"- {s}" for s in b["key_points"]] or ["- (해당 발언 없음)"]
+    L += ["", "## 3. 주요 질의와 정부 답변"]
+    for n, q in enumerate(b["top_questions"], 1):
+        L.append(f"{n}. **{q['member']} 위원** ({q['date']}) — {q['question']}")
+        if q["answer"]:
+            L.append(f"   - 답변({q['answerer']}): {q['answer']}" + (" **[이행약속]**" if q["commitment"] else ""))
+    L += ["", "## 4. 이행약속 추적표 (사후 점검 대상)", "",
+          "| 일자 | 답변자 | 기관 | 내용 |", "|---|---|---|---|"]
+    for cm in b["commitments"]:
+        L.append(f"| {cm['date']} | {cm['speaker']} | {cm['org'] or '-'} | {cm['text'].replace('|', '/')} |")
+    L += ["", "## 5. 관심 위원"]
+    L += [f"- {m['name']} 위원: 질의 {m['count']}회" for m in b["active_members"]]
+    L += ["", "## 6. 관련 회의"]
+    L += [f"- {m['date']} {m['title']}" for m in b["meetings"]]
+    return "\n".join(L) + "\n"
+
+
+def issue_overview(store: Store) -> list[dict]:
+    utts = store.utterances()
+    per_issue: dict[str, dict] = {}
+    for iid, (label, parent, _) in ISSUES.items():
+        per_issue[iid] = {"id": iid, "label": label, "parent": parent, "count": 0,
+                          "meetings": set(), "orgs": Counter(), "members": Counter()}
+    for u in utts:
+        for iid, n in u["issues"].items():
+            d = per_issue[iid]
+            d["count"] += n
+            d["meetings"].add(u["meeting_id"])
+            d["orgs"].update(u["orgs"])
+            if u["org"]:
+                d["orgs"][u["org"]] += 1
+            if u["speaker_type"] == "member":
+                d["members"][u["speaker_name"]] += 1
+            parent = ISSUES[iid][1]
+            if parent:
+                per_issue[parent]["count"] += n
+                per_issue[parent]["meetings"].add(u["meeting_id"])
+    out = []
+    for d in per_issue.values():
+        out.append({**d, "meetings": len(d["meetings"]),
+                    "orgs": [o for o, _ in d["orgs"].most_common(5)],
+                    "members": [m for m, _ in d["members"].most_common(5)]})
+    return out
