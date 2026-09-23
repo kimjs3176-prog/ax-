@@ -1,0 +1,12 @@
+{
+  "hash": "76b146374beaaec1975eed09f930dd004119a8df7cf7692b4c363ea0b2baa43b",
+  "exported_at": "2026-09-23T02:37:44+00:00",
+  "size_bytes": 6144871,
+  "meetings": 110,
+  "parsed": 110,
+  "utterances": 51002,
+  "commitments": 3605,
+  "questions": 10988,
+  "date_min": "2024-06-20",
+  "date_max": "2026-09-17"
+}
