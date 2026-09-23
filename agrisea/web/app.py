@@ -3,42 +3,44 @@ from __future__ import annotations
 
 import re
 import threading
-from collections import Counter
 from pathlib import Path
 from typing import Any
 
 from fastapi import Body, FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, PlainTextResponse
-from rdflib import Graph
 
 from .. import analysis
 from ..config import Settings, get_settings
-from ..lexicon import ISSUES, ORGANIZATIONS
-from ..ontology import PRESET_QUERIES, build_graph, run_sparql, save_graph
+from ..lexicon import ISSUES
+from ..ontology import KG_PATH, PRESET_QUERIES, kg_from_file, kg_from_store, run_sparql
 from ..pipeline import seed_meta
+from ..ontology import SCHEMA_PATH
 from ..store import Store
 
 STATIC = Path(__file__).parent / "static"
 FORBIDDEN_SPARQL = re.compile(r"\b(SERVICE|LOAD|INSERT|DELETE|DROP|CLEAR|CREATE|COPY|MOVE|ADD)\b", re.I)
 
 
-class GraphCache:
-    def __init__(self, store: Store, settings: Settings):
-        self.store, self.settings = store, settings
-        self._g: Graph | None = None
+class KGCache:
+    """SPARQL용 지식그래프(pyoxigraph). 미리 계산된 data/kg.nt.gz 를 우선 쓰고,
+    화면에서 수집해 데이터가 바뀐 뒤에는 첫 질의 때 저장소에서 다시 만든다."""
+
+    def __init__(self, store: Store):
+        self.store = store
+        self._kg = None
+        self._dirty = False
         self._lock = threading.Lock()
 
-    def get(self) -> Graph:
+    def get(self):
         with self._lock:
-            if self._g is None:
-                self._g = build_graph(self.store)
-            return self._g
+            if self._kg is None:
+                self._kg = (kg_from_file(KG_PATH) if not self._dirty and KG_PATH.exists()
+                            else kg_from_store(self.store))
+            return self._kg
 
-    def invalidate(self) -> Graph:
+    def invalidate(self) -> None:
         with self._lock:
-            self._g = build_graph(self.store)
-            save_graph(self._g, self.settings.graph_path)
-            return self._g
+            self._kg, self._dirty = None, True
 
 
 def create_app(settings: Settings | None = None, store: Store | None = None) -> FastAPI:
@@ -59,7 +61,16 @@ def create_app(settings: Settings | None = None, store: Store | None = None) -> 
     if settings.serverless and storage != "memory":
         storage = "seed" if storage == "seed" else "ephemeral"
 
-    graphs = GraphCache(store, settings)
+    graphs = KGCache(store)
+
+    def cached(key: str):
+        """사전 계산된 집계(kv)를 쓰고, 없으면 계산해 저장."""
+        from ..precompute import CACHED_VIEWS
+        value = store.kv_get(key)
+        if value is None:
+            value = CACHED_VIEWS[key](store)
+            store.kv_set(key, value)
+        return value
     app = FastAPI(title="농해수위 국정감사 온톨로지 서비스", version="0.1.0")
     app.state.store = store
 
@@ -107,7 +118,11 @@ def create_app(settings: Settings | None = None, store: Store | None = None) -> 
     def summary(meeting_id: str, llm: bool = False):
         if not store.meeting(meeting_id):
             raise HTTPException(404, "회의를 찾을 수 없습니다.")
-        base = analysis.summarize_meeting(store, meeting_id)
+        base = store.summary(meeting_id, "rule")
+        if base is None:
+            base = analysis.summarize_meeting(store, meeting_id)
+            if base["meeting"]["text_status"] == "parsed":
+                store.save_summary(meeting_id, "rule", base)
         cached = store.summary(meeting_id, "llm")
         if llm and not cached:
             if not settings.llm_enabled:
@@ -129,22 +144,15 @@ def create_app(settings: Settings | None = None, store: Store | None = None) -> 
 
     @app.get("/api/issues")
     def issues():
-        return analysis.issue_overview(store)
+        return cached("issues")
 
     @app.get("/api/orgs")
     def orgs():
-        cnt, commits = Counter(), Counter()
-        for u in store.utterances():
-            for o in set(u["orgs"]) | ({u["org"]} if u["org"] else set()):
-                cnt[o] += 1
-            if u["is_commitment"] and u["org"]:
-                commits[u["org"]] += 1
-        return [{"name": n, "aliases": list(ORGANIZATIONS[n]), "mentions": cnt[n],
-                 "commitments": commits[n]} for n in ORGANIZATIONS]
+        return cached("orgs")
 
     @app.get("/api/speakers")
     def speakers():
-        return store.speakers()
+        return cached("speakers")
 
     @app.get("/api/briefing")
     def briefing(org: str = "", issue: str = "", keyword: str = "", member: str = "",
@@ -175,29 +183,9 @@ def create_app(settings: Settings | None = None, store: Store | None = None) -> 
             raise HTTPException(400, f"SPARQL 오류: {e}") from e
 
     @app.get("/api/graph")
-    def graph(min_weight: int = 1):
+    def graph():
         """쟁점–기관–위원 관계망(시각화용)."""
-        nodes: dict[str, dict] = {}
-        edges: Counter = Counter()
-
-        def node(nid: str, label: str, kind: str):
-            n = nodes.setdefault(nid, {"id": nid, "label": label, "kind": kind, "weight": 0})
-            n["weight"] += 1
-
-        for u in store.utterances():
-            issues_ = [i for i in u["issues"]]
-            orgs_ = set(u["orgs"]) | ({u["org"]} if u["org"] else set())
-            for i in issues_:
-                node(f"issue:{i}", ISSUES[i][0], "issue")
-                for o in orgs_:
-                    node(f"org:{o}", o, "org")
-                    edges[(f"issue:{i}", f"org:{o}")] += 1
-                if u["speaker_type"] == "member":
-                    node(f"member:{u['speaker_name']}", f"{u['speaker_name']} 위원", "member")
-                    edges[(f"member:{u['speaker_name']}", f"issue:{i}")] += 1
-        return {"nodes": list(nodes.values()),
-                "edges": [{"source": a, "target": b, "weight": w}
-                          for (a, b), w in edges.items() if w >= min_weight]}
+        return cached("graph")
 
     @app.get("/api/minutes-text")
     def minutes_text(id: str = Query(..., pattern=r"^\d{1,12}$")):
@@ -215,8 +203,8 @@ def create_app(settings: Settings | None = None, store: Store | None = None) -> 
 
     @app.get("/api/ontology.ttl")
     def ontology_ttl():
-        return PlainTextResponse(graphs.get().serialize(format="turtle"),
-                                 media_type="text/turtle; charset=utf-8")
+        """온톨로지 스키마(클래스·속성 정의). 인스턴스 전체는 저장소의 data/kg.nt.gz."""
+        return FileResponse(SCHEMA_PATH, media_type="text/turtle; charset=utf-8")
 
     @app.post("/api/admin/collect")
     def admin_collect(payload: dict[str, Any] = Body(...)):

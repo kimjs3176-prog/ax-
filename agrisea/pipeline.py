@@ -92,10 +92,12 @@ def export_seed(store: Store) -> dict:
     from datetime import datetime, timezone
 
     from .config import SEED_DB, SEED_META
+    from .ontology import KG_PATH
+    from .precompute import PRECOMPUTE_VERSION, precompute
 
-    digest = store.content_hash()
+    digest = f"v{PRECOMPUTE_VERSION}:{store.content_hash()}"
     old = seed_meta()
-    if old.get("hash") == digest and SEED_DB.exists():
+    if old.get("hash") == digest and SEED_DB.exists() and KG_PATH.exists():
         return {**old, "changed": False}
 
     with tempfile.TemporaryDirectory() as d:
@@ -111,11 +113,16 @@ def export_seed(store: Store) -> dict:
                 conn.execute(f"DROP TRIGGER IF EXISTS {name}")
             conn.execute("DROP TABLE IF EXISTS utterances_fts")
             conn.execute("UPDATE meetings SET raw_json=NULL")
-        conn.execute("VACUUM")
+            conn.execute("DELETE FROM kv")
         conn.close()
+        # 가상 예시를 뺀 사본 기준으로 요약·집계·지식그래프를 미리 계산해 함께 싣는다
         exported = Store(path, fts=False)
+        pre = precompute(exported, KG_PATH)
         stats = {k: v for k, v in exported.stats().items() if k != "samples"}
         exported.conn.close()
+        conn = sqlite3.connect(path)
+        conn.execute("VACUUM")
+        conn.close()
         SEED_DB.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "rb") as src, open(SEED_DB, "wb") as raw, \
                 gzip.GzipFile(fileobj=raw, mode="wb", mtime=0) as gz:
@@ -125,6 +132,7 @@ def export_seed(store: Store) -> dict:
         "hash": digest,
         "exported_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "size_bytes": SEED_DB.stat().st_size,
+        "kg_triples": pre.get("triples"),
         **stats,
     }
     SEED_META.write_text(json.dumps(meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
