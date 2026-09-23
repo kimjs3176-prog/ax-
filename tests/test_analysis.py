@@ -80,3 +80,26 @@ def test_summary_skips_bill_lists_and_short_replies():
             "예, 맞습니다. 수확기 쌀값 안정을 위해 정부가 시장격리 물량을 추가로 검토하겠습니다.")
     out = extractive_summary(text, 3)
     assert out and not any("의안번호" in s or s.startswith(("3번", "예,")) for s in out)
+
+
+def test_role_qualifier_moves_to_role():
+    from agrisea.parser import fix_role_qualifier
+    assert fix_role_qualifier("해양경찰청장", "직무대", "행장인식 존경하는 위원장님") == \
+        ("해양경찰청장 직무대행", "장인식", "존경하는 위원장님")
+    assert fix_role_qualifier("해양수산부장관", "후보자", "황종우 위원님 말씀 주신 대로") == \
+        ("해양수산부장관 후보자", "황종우", "위원님 말씀 주신 대로")
+    assert fix_role_qualifier("해양경찰청장", "김용진", "예, 동의합니다.")[1] == "김용진"
+
+
+def test_agenda_headline_and_specific_promise():
+    from agrisea.analysis import _specific_promise, agenda_headline
+    assert agenda_headline(["1. 2025회계연도 결산(의안번호 2219079)", "가. 농림축산식품부 소관",
+                            "2. 동물보호법 일부개정법률안(신영대 의원 대표발의)(의안번호 2200730)"]) \
+        == "2025회계연도 결산 외 1건"
+    assert not _specific_promise("지적하신 취지에는 공감하고 시정하겠습니다")
+    assert _specific_promise("수확기 쌀값 안정을 위해 시장격리 물량을 추가 검토하겠습니다")
+
+
+def test_search_prefers_substantive_speakers(store):
+    rows = store.search("쌀값", limit=3)
+    assert rows and rows[0]["speaker_type"] != "chair"

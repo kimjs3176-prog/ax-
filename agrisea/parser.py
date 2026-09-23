@@ -91,6 +91,20 @@ def clean_text(raw: str) -> str:
     return "\n".join(lines)
 
 
+# 직위 뒤에 붙는 대행·후보 표시: '해양경찰청장 직무대행 장인식', '해양수산부장관 후보자 황종우'.
+# 띄어쓰기가 사라지면 '직무대'가 이름으로, '후보자'가 이름으로 잡히므로 바로잡는다.
+ROLE_QUALIFIER = re.compile(r"^((?:전담)?직무대[행리]|권한대행|후보자)\s*([가-힣]{2,4})(?=\s|$)")
+
+
+def fix_role_qualifier(role: str, name: str, text: str) -> tuple[str, str, str]:
+    """(직위, 이름, 본문)에서 이름 자리에 끼어든 '직무대행'·'후보자'를 직위로 옮기고 진짜 이름을 찾는다."""
+    for joined in (f"{name}{text}", f"{name} {text}"):
+        m = ROLE_QUALIFIER.match(joined)
+        if m:
+            return f"{role} {m.group(1)}", m.group(2), joined[m.end():].strip()
+    return role, name, text
+
+
 def parse_speaker(chunk: str) -> tuple[str, str, str] | None:
     """'위원장 홍길동 성원이...' → (role, name, rest)."""
     head = chunk.lstrip()
@@ -103,7 +117,7 @@ def parse_speaker(chunk: str) -> tuple[str, str, str] | None:
             role, name = "위원", a
         else:
             role, name = a, b
-        return role, name, head[m.end():].strip()
+        return fix_role_qualifier(role, name, head[m.end():].strip())
     return None
 
 

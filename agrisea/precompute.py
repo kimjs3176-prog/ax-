@@ -56,30 +56,30 @@ def reclassify(store: Store) -> int:
 
     from .lexicon import (DATA_REQUEST_PATTERNS, QUESTION_PATTERNS, classify_role, is_commitment,
                           match_issues, match_organizations, org_from_role)
-    from .parser import clean_utterance_text
-    rows = store.conn.execute("SELECT id, speaker_role, speaker_type, org, text, is_question, "
-                              "is_commitment, is_data_request, issues_json, orgs_json "
+    from .parser import clean_utterance_text, fix_role_qualifier
+    rows = store.conn.execute("SELECT id, speaker_role, speaker_name, speaker_type, org, text, "
+                              "is_question, is_commitment, is_data_request, issues_json, orgs_json "
                               "FROM utterances").fetchall()
     updates = []
     for r in rows:
-        text = clean_utterance_text(r["text"])
+        role, name, text = fix_role_qualifier(r["speaker_role"], r["speaker_name"],
+                                              clean_utterance_text(r["text"]))
         issues = json.dumps(match_issues(text), ensure_ascii=False)
         orgs = json.dumps(match_organizations(text), ensure_ascii=False)
-        stype = classify_role(r["speaker_role"])
-        org = org_from_role(r["speaker_role"]) if stype in ("official", "witness", "reference", "other") \
-            else None
+        stype = classify_role(role)
+        org = org_from_role(role) if stype in ("official", "witness", "reference", "other") else None
         q = int(stype == "member" and bool(QUESTION_PATTERNS.search(text)))
         d = int(stype in ("member", "chair") and bool(DATA_REQUEST_PATTERNS.search(text)))
         c = int(stype in ("official", "witness") and is_commitment(text))
-        new = (stype, org, q, c, d, text, issues, orgs)
-        if new != (r["speaker_type"], r["org"], r["is_question"], r["is_commitment"],
-                   r["is_data_request"], r["text"], r["issues_json"], r["orgs_json"]):
+        new = (role, name, stype, org, q, c, d, text, issues, orgs)
+        if new != (r["speaker_role"], r["speaker_name"], r["speaker_type"], r["org"], r["is_question"],
+                   r["is_commitment"], r["is_data_request"], r["text"], r["issues_json"], r["orgs_json"]):
             updates.append((*new, r["id"]))
     if updates:
         with store.tx() as conn:
-            conn.executemany("UPDATE utterances SET speaker_type=?, org=?, is_question=?, "
-                             "is_commitment=?, is_data_request=?, text=?, issues_json=?, "
-                             "orgs_json=? WHERE id=?", updates)
+            conn.executemany("UPDATE utterances SET speaker_role=?, speaker_name=?, speaker_type=?, "
+                             "org=?, is_question=?, is_commitment=?, is_data_request=?, text=?, "
+                             "issues_json=?, orgs_json=? WHERE id=?", updates)
             conn.execute("DELETE FROM kv")
             conn.execute("DELETE FROM summaries WHERE kind='rule'")
     return len(updates)
