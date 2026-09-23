@@ -561,12 +561,13 @@ async function showIssue(id){
       <div class="card"><h2>관련 기관</h2><p class="sub">답변하거나 언급된 발언 수</p>${d.orgs.length ? barsHtml(d.orgs) : '<div class="empty">-</div>'}</div>
       <div class="card"><h2>질의한 위원</h2><p class="sub">이 쟁점을 언급한 발언 수</p>${d.members.length ? barsHtml(d.members.map(m => ({...m, name: m.name + " 위원"}))) : '<div class="empty">-</div>'}</div>
     </div>
-    <div class="card"><h2>질의와 정부 답변</h2><p class="sub">왼쪽은 위원 질의, 오른쪽은 정부 답변입니다(<span class="chip warn">약속</span> 표시는 구체적 조치 약속). 최근 회의 순.</p>
+    <div class="card"><h2>질의와 정부 답변</h2><p class="sub">한 위원의 질의 순서에서 실제로 이어진 질의(왼쪽)와 정부 답변(오른쪽)입니다. <span class="chip warn">약속</span>은 구체적 조치 약속. 최근 회의 순.</p>
       ${d.dialogue.map((t, i) => {
         const head = i === 0 || d.dialogue[i - 1].meeting_id !== t.meeting_id;
         return `${head ? `<div class="chat-day"><span>${dot(t.date)} · 제${t.session}회 · <button class="link" onclick="gotoMeeting('${esc(t.meeting_id)}')">회의 보기</button></span></div>` : ""}
-        <div class="qa">${t.question ? `<div class="bubble q"><div class="who">${esc(t.question.speaker)}</div>${esc(t.question.text)}</div>` : ""}
-        ${t.answer ? `<div class="bubble a${t.answer.commitment ? " promise" : ""}"><div class="who">${esc(t.answer.speaker)} ${t.answer.commitment ? '<span class="chip warn">약속</span>' : ""}</div>${esc(t.answer.text)}</div>` : ""}</div>`;
+        <div class="qa">${t.turns.map(x => x.side === "q"
+          ? `<div class="bubble q"><div class="who">${esc(x.speaker)}</div>${esc(x.text)}</div>`
+          : `<div class="bubble a${x.commitment ? " promise" : ""}"><div class="who">${esc(x.speaker)} ${x.commitment ? '<span class="chip warn">약속</span>' : ""}</div>${esc(x.text)}</div>`).join("")}</div>`;
       }).join("") || '<div class="empty">-</div>'}</div>`;
 }
 // ── 쟁점 신경망(3D): 위원(입력층) → 쟁점(은닉층) → 기관(출력층) ──
