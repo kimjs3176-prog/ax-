@@ -1,14 +1,13 @@
 """FastAPI 웹 서비스: 검색·요약·브리핑·온톨로지 탐색 API와 단일 페이지 UI."""
 from __future__ import annotations
 
-import hmac
 import re
 import threading
 from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query
+from fastapi import Body, FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, PlainTextResponse
 from rdflib import Graph
 
@@ -58,14 +57,6 @@ def create_app(settings: Settings | None = None, store: Store | None = None) -> 
     if settings.serverless and storage != "memory":
         storage = "seed" if storage == "seed" else "ephemeral"
 
-    def require_admin(x_admin_token: str = Header(default="")) -> None:
-        """관리 기능 보호: 토큰이 설정돼 있으면 일치해야 하고, 서버리스에선 토큰이 필수."""
-        if settings.admin_token:
-            if not hmac.compare_digest(x_admin_token.encode(), settings.admin_token.encode()):
-                raise HTTPException(401, "관리자 토큰이 올바르지 않습니다.")
-        elif settings.serverless:
-            raise HTTPException(403, "배포 환경에서는 ADMIN_TOKEN 환경변수를 설정해야 관리 기능을 쓸 수 있습니다.")
-
     graphs = GraphCache(store, settings)
     app = FastAPI(title="농해수위 국정감사 온톨로지 서비스", version="0.1.0")
     app.state.store = store
@@ -89,7 +80,6 @@ def create_app(settings: Settings | None = None, store: Store | None = None) -> 
             "data_dir": str(settings.data_dir),
             "static_index": (STATIC / "index.html").exists(),
             "api_key_configured": bool(settings.api_key),
-            "admin_token_configured": bool(settings.admin_token),
             "llm_enabled": settings.llm_enabled,
         }
 
@@ -97,8 +87,7 @@ def create_app(settings: Settings | None = None, store: Store | None = None) -> 
     def stats():
         return {**store.stats(), "llm_enabled": settings.llm_enabled,
                 "api_key_configured": bool(settings.api_key),
-                "storage": storage, "serverless": settings.serverless,
-                "admin_required": bool(settings.admin_token) or settings.serverless}
+                "storage": storage, "serverless": settings.serverless}
 
     @app.get("/api/meetings")
     def meetings(date_from: str = "", date_to: str = "", q: str = ""):
@@ -212,7 +201,7 @@ def create_app(settings: Settings | None = None, store: Store | None = None) -> 
         return PlainTextResponse(graphs.get().serialize(format="turtle"),
                                  media_type="text/turtle; charset=utf-8")
 
-    @app.post("/api/admin/collect", dependencies=[Depends(require_admin)])
+    @app.post("/api/admin/collect")
     def admin_collect(payload: dict[str, Any] = Body(...)):
         """회의 메타데이터 수집. date_from/date_to를 주면 일자별로 순회한다(본문은 fetch-minutes로)."""
         from ..pipeline import collect, collect_range, pending_count
@@ -244,7 +233,7 @@ def create_app(settings: Settings | None = None, store: Store | None = None) -> 
         graphs.invalidate()
         return {"meetings": len(ms), "pending": pending_count(store), "log": log}
 
-    @app.post("/api/admin/fetch-minutes", dependencies=[Depends(require_admin)])
+    @app.post("/api/admin/fetch-minutes")
     def admin_fetch_minutes(limit: int = Query(3, ge=1, le=20)):
         """본문 미수집 회의를 limit건씩 처리(서버리스 실행시간 제한 대응). pending이 0이 될 때까지 반복 호출."""
         from ..pipeline import fetch_minutes, pending_count
@@ -253,7 +242,7 @@ def create_app(settings: Settings | None = None, store: Store | None = None) -> 
         graphs.invalidate()
         return {"parsed": ok, "pending": pending_count(store), "log": log}
 
-    @app.post("/api/admin/sample", dependencies=[Depends(require_admin)])
+    @app.post("/api/admin/sample")
     def admin_sample():
         from ..pipeline import load_sample
         n = load_sample(store)
