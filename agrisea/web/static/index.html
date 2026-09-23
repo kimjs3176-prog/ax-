@@ -6,6 +6,7 @@
 <title>농해수위 국감 온톨로지</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
 <style>
 :root{
   color-scheme: light;
@@ -199,13 +200,83 @@ pre{white-space:pre-wrap;font-size:13px}
 @media (max-width:640px){.net-stage{height:440px}.net-hud{display:none}}
 svg text{fill:var(--ink);font-size:11px}
 .empty{color:var(--muted);padding:20px 0;text-align:center}
+
+/* ═══ 디자인 시스템 v2: 브랜드 헤더·넓은 레이아웃·위계 ═══ */
+:root{--radius:14px;--shadow:0 1px 2px rgba(16,40,28,.06),0 4px 16px rgba(16,40,28,.05);--bg:#f3f5f4;
+  --band-1:#0f3d2a;--band-2:#0d4a5c;--band-ink:#eaf4ef;--band-muted:#a8c4b8}
+:root[data-theme="dark"]{--bg:#0f1311;--shadow:0 1px 2px rgba(0,0,0,.4)}
+@media (prefers-color-scheme: dark){:root:where(:not([data-theme="light"])){--bg:#0f1311;--shadow:0 1px 2px rgba(0,0,0,.4)}}
+body{font-family:"Pretendard Variable",Pretendard,"Noto Sans KR",system-ui,sans-serif;letter-spacing:-.01em;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1320px;padding:0 24px}
+header{background:linear-gradient(100deg,var(--band-1) 0%,var(--band-2) 100%);border-bottom:0;color:var(--band-ink);box-shadow:0 2px 12px rgba(10,40,30,.18)}
+.top{padding:14px 0 10px}
+.brand{display:flex;align-items:center;gap:12px;min-width:0}
+.brand svg{flex:none}
+h1{font-size:19px;letter-spacing:-.02em;color:#fff;line-height:1.25}
+h1 small{display:block;margin:2px 0 0;color:var(--band-muted);font-size:12px;font-weight:400;letter-spacing:0}
+.sessionbar{color:var(--band-muted);font-size:13px}
+.sessionbar select{background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.22);border-radius:999px;padding:7px 14px;font-weight:600;max-width:min(340px,calc(100vw - 110px))}
+.sessionbar select option{color:#111}
+nav{flex-wrap:nowrap;overflow-x:auto;gap:4px;padding-bottom:0;scrollbar-width:none;margin:0 -4px}
+nav::-webkit-scrollbar{display:none}
+nav button{color:var(--band-muted);border-radius:0;padding:10px 12px 12px;border-bottom:3px solid transparent;white-space:nowrap;font-weight:500}
+nav button:hover{color:#fff}
+nav button.on{background:none;color:#fff;border-bottom-color:#7fd49a;font-weight:700}
+main.wrap{padding-top:22px;padding-bottom:28px}
+.heat table{width:100%;min-width:640px}
+@media (min-width:861px){.two>.card:first-child{position:sticky;top:132px;max-height:calc(100vh - 150px);overflow:auto}}
+.heat td{min-width:20px;height:26px}
+.card{border:1px solid color-mix(in oklab,var(--line) 70%,transparent);box-shadow:var(--shadow);padding:18px 20px;margin-bottom:16px}
+.grid{gap:16px}
+h2{font-size:16px;letter-spacing:-.02em;display:flex;align-items:center;gap:8px}
+h2::before{content:"";width:4px;height:15px;border-radius:2px;background:var(--brand);flex:none}
+.sub{margin-bottom:14px}
+/* 대시보드 첫 화면: 한 줄 요약 + 핵심 수치 */
+.hero{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,2fr);gap:24px;align-items:center;padding:22px 24px}
+.hero .eyebrow{font-size:12px;font-weight:700;color:var(--brand);letter-spacing:.04em}
+.hero .headline{font-size:22px;font-weight:800;letter-spacing:-.03em;line-height:1.35;margin:4px 0 6px}
+.hero .headline em{font-style:normal;color:var(--brand)}
+.hero .meta{font-size:13px;color:var(--muted)}
+.kpirow{display:grid;grid-template-columns:repeat(4,1fr)}
+.kpirow div{padding:4px 18px;border-left:1px solid var(--line)}
+.kpirow b{display:block;font-size:30px;font-weight:800;letter-spacing:-.03em;line-height:1.15;font-variant-numeric:tabular-nums}
+.kpirow span{font-size:13px;color:var(--ink-2)}
+.kpirow small{display:block;font-size:11px;color:var(--muted)}
+.g3{grid-template-columns:repeat(3,minmax(0,1fr))}
+@media (max-width:1100px){.g3{grid-template-columns:repeat(auto-fit,minmax(min(360px,100%),1fr))}}
+@media (max-width:900px){.hero{grid-template-columns:1fr}.kpirow div:first-child{border-left:0;padding-left:0}}
+@media (max-width:640px){
+  .wrap{padding:0 16px}
+  .top{padding:10px 0 6px;gap:8px}
+  h1{font-size:16px} h1 small{display:none}
+  .brand svg{width:26px;height:26px}
+  .sessionbar{width:100%} .sessionbar select{flex:1;max-width:none}
+  .hero{padding:18px}
+  .hero .headline{font-size:19px}
+  .kpirow{grid-template-columns:repeat(2,1fr);row-gap:12px}
+  .kpirow div:nth-child(3){border-left:0;padding-left:0}
+  .kpirow b{font-size:24px}
+  .card{padding:16px}
+}
+/* 최근 약속(대시보드): 촘촘한 목록 */
+.clist .ci{padding:10px 0;border-bottom:1px solid var(--line)}
+.clist .ci:last-child{border-bottom:0}
+.clist .ci .who{font-size:12px;color:var(--muted)}
+.clist .ci .who b{color:var(--ink-2)}
+.clist .ci .t{font-size:14px;font-weight:600;line-height:1.5;margin:2px 0}
+.clist .ci .q{font-size:12px;color:var(--muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+#recent .item{padding:11px 0}
 </style>
 </head>
 <body>
 <header>
   <div class="wrap">
     <div class="top">
-      <h1>농해수위 국정감사 온톨로지 <small>국회 위원회 회의록 기반</small></h1>
+      <div class="brand">
+        <svg width="32" height="32" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9" fill="rgba(255,255,255,.12)"/>
+          <path d="M9 18c0-6 5-10 12-10-1 7-5 11-12 10z" fill="#7fd49a"/><path d="M6 23c3-2 6-2 9 0s6 2 9 0 5-2 6-1" stroke="#7fc0f0" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
+        <h1>농해수위 국정감사 온톨로지<small>국회 농림축산식품해양수산위원회 회의록 분석</small></h1>
+      </div>
       <label class="sessionbar">회기 <select id="session"><option value="">전체 회기</option></select></label>
     </div>
     <nav id="tabs">
@@ -224,29 +295,29 @@ svg text{fill:var(--ink);font-size:11px}
 <!-- 대시보드 -->
 <section id="dash" class="on">
   <div id="noticeArea"></div>
-  <div class="grid kpis" id="kpis"></div>
-  <div class="grid g2">
-    <div class="card">
-      <h2>무엇이 많이 논의됐나</h2>
-      <p class="sub">쟁점별 언급 횟수(전체 회기) · 쟁점을 누르면 상세로 이동</p>
-      <div id="rank"></div>
-    </div>
-    <div class="card">
-      <h2>최근 회의</h2>
-      <p class="sub">회의를 누르면 요약을 봅니다</p>
-      <div id="recent"></div>
-    </div>
-  </div>
+  <div class="card hero" id="kpis"></div>
   <div class="card">
     <h2>회기별 쟁점 흐름</h2>
     <p class="sub">색이 진할수록 그 회기에 많이 언급된 쟁점 · <span class="reg">파란 굵은 번호</span>는 정기회 · 칸에 마우스를 올리면 횟수 · 쟁점 이름을 누르면 상세</p>
     <div class="heat" id="heat"></div>
     <div class="scale"><span>적음</span><span class="grad"></span><span>많음</span><span>· 점선 칸 = 언급 없음</span></div>
   </div>
-  <div class="card">
-    <h2>최근 정부 약속</h2>
-    <p class="sub">정부·기관이 "검토·개선하겠습니다" 등으로 답한 발언 — 국감 사후 점검 대상</p>
-    <div id="recentCommit"></div>
+  <div class="grid g3">
+    <div class="card">
+      <h2>많이 논의된 쟁점</h2>
+      <p class="sub">전체 회기 언급 횟수 · 누르면 쟁점 상세</p>
+      <div id="rank"></div>
+    </div>
+    <div class="card">
+      <h2>최근 회의</h2>
+      <p class="sub">대표 안건과 핵심 쟁점 · 누르면 요약</p>
+      <div id="recent"></div>
+    </div>
+    <div class="card">
+      <h2>최근 정부 약속</h2>
+      <p class="sub">무엇을 하겠다고 답했는지 · 국감 사후 점검 대상</p>
+      <div id="recentCommit" class="clist"></div>
+    </div>
   </div>
   <div class="card">
     <details>
@@ -422,17 +493,24 @@ async function loadDash(){
   const upd = s.data_updated ? `자동 갱신 ${esc(s.data_updated.replace("T", " ").slice(0, 16))} UTC` : "자동 수집 데이터 없음";
   $("#noticeArea").innerHTML = s.samples ? `<div class="notice">가상 예시 회의록 ${s.samples}건이 포함되어 있습니다.</div>` : "";
   const latest = SESSIONS[0];
-  $("#kpis").innerHTML = [
-    ["회의", s.meetings, `회기 ${SESSIONS.length}개`],
-    ["발언", s.utterances, latest ? `최근 ${esc(latest.label)}` : ""],
-    ["위원 질의", s.questions, "질문 형태의 위원 발언"],
-    ["정부 약속", s.commitments, "검토·개선하겠다는 답변"],
-    ["수록 기간", null, `<b style="font-size:15px">${dot(s.date_min)} ~ ${dot(s.date_max)}</b><br>${upd}`],
-  ].map(([l, v, sub]) => `<div class="card stat"><span class="l">${l}</span>${v === null ? "" : `<span class="v">${fmt(v)}</span>`}<div class="s">${sub}</div></div>`).join("");
+  const renderHero = (topIssue, recentN) => { $("#kpis").innerHTML = `
+    <div>
+      <div class="eyebrow">${latest ? esc(latest.label) : "회의록 현황"}</div>
+      <div class="headline">${topIssue ? `가장 많이 다룬 쟁점은<br><em>${esc(topIssue)}</em>` : "농해수위 회의록 분석"}</div>
+      <div class="meta">${dot(s.date_min)} ~ ${dot(s.date_max)} · 회기 ${SESSIONS.length}개${recentN ? ` · 최근 회기 회의 ${recentN}건` : ""}<br>${upd}</div>
+    </div>
+    <div class="kpirow">${[
+      ["회의", s.meetings, "수록된 전체·소위 회의"],
+      ["발언", s.utterances, "위원·정부·기관 발언"],
+      ["위원 질의", s.questions, "질문 형태의 위원 발언"],
+      ["정부 약속", s.commitments, "검토·개선하겠다는 답변"],
+    ].map(([l, v, sub]) => `<div><b>${fmt(v)}</b><span>${l}</span><small>${sub}</small></div>`).join("")}</div>` };
+  renderHero(null, 0);
 
   const [issues, trend, ov] = await Promise.all([api("/api/issues"), api("/api/issue-trend"), api("/api/overview")]);
-  const leaf = issues.filter(i => i.parent && i.count).sort((a, b) => b.count - a.count).slice(0, 10);
+  const leaf = issues.filter(i => i.parent && i.count).sort((a, b) => b.count - a.count).slice(0, 14);
   $("#rank").innerHTML = leaf.length ? barsHtml(leaf, {onclick: "gotoIssue"}) : '<div class="empty">데이터 없음</div>';
+  renderHero(leaf[0]?.label, latest ? ov.meetings.filter(m => m.session_no === latest.session_no).length : 0);
 
   $("#recent").innerHTML = ov.meetings.map(m => `
     <div class="item" onclick="gotoMeeting('${esc(m.id)}')">
@@ -454,7 +532,9 @@ async function loadDash(){
     : '<div class="empty">데이터 없음</div>';
 
   $("#recentCommit").innerHTML = ov.commitments.slice(0, 6).map(c => `
-    <div class="quote warn"><div class="who">${esc(c.speaker)} <span class="meta">· ${dot(c.date)} · <button class="link" onclick="gotoMeeting('${esc(c.meeting_id)}')">회의 보기</button></span></div>${c.question ? `<div class="ctx">${esc(c.question.member)} 위원 질의: ${esc(cut(c.question.text, 110))}</div>` : ""}${esc(c.text)}<div>${chips(c.issues)}</div></div>`).join("") || '<div class="empty">데이터 없음</div>';
+    <div class="ci"><div class="who"><b>${esc(c.speaker)}</b> · ${dot(c.date)} · <button class="link" onclick="gotoMeeting('${esc(c.meeting_id)}')">회의 보기</button></div>
+      <div class="t">${esc(cut(c.text, 90))}</div>
+      ${c.question ? `<div class="q">↳ ${esc(c.question.member)} 위원: ${esc(c.question.text)}</div>` : ""}</div>`).join("") || '<div class="empty">데이터 없음</div>';
 }
 function gotoIssue(id){ openTab("issues"); showIssue(id) }
 function gotoMeeting(id){ openTab("meetings"); showMeeting(id) }
