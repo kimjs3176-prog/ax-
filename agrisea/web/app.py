@@ -1,13 +1,14 @@
 """FastAPI 웹 서비스: 검색·요약·브리핑·온톨로지 탐색 API와 단일 페이지 UI."""
 from __future__ import annotations
 
+import hmac
 import re
 import threading
 from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from fastapi import Body, FastAPI, HTTPException, Query
+from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query
 from fastapi.responses import FileResponse, PlainTextResponse
 from rdflib import Graph
 
@@ -42,9 +43,23 @@ class GraphCache:
 
 def create_app(settings: Settings | None = None, store: Store | None = None) -> FastAPI:
     settings = settings or get_settings()
+    storage = "memory"
     if store is None:
+        from ..pipeline import seed_store
+        storage = "seed" if seed_store(settings) else "local"
         settings.ensure_dirs()
         store = Store(settings.db_path)
+    if settings.serverless and storage != "memory":
+        storage = "seed" if storage == "seed" else "ephemeral"
+
+    def require_admin(x_admin_token: str = Header(default="")) -> None:
+        """관리 기능 보호: 토큰이 설정돼 있으면 일치해야 하고, 서버리스에선 토큰이 필수."""
+        if settings.admin_token:
+            if not hmac.compare_digest(x_admin_token.encode(), settings.admin_token.encode()):
+                raise HTTPException(401, "관리자 토큰이 올바르지 않습니다.")
+        elif settings.serverless:
+            raise HTTPException(403, "배포 환경에서는 ADMIN_TOKEN 환경변수를 설정해야 관리 기능을 쓸 수 있습니다.")
+
     graphs = GraphCache(store, settings)
     app = FastAPI(title="농해수위 국정감사 온톨로지 서비스", version="0.1.0")
     app.state.store = store
@@ -56,7 +71,9 @@ def create_app(settings: Settings | None = None, store: Store | None = None) -> 
     @app.get("/api/stats")
     def stats():
         return {**store.stats(), "llm_enabled": settings.llm_enabled,
-                "api_key_configured": bool(settings.api_key)}
+                "api_key_configured": bool(settings.api_key),
+                "storage": storage, "serverless": settings.serverless,
+                "admin_required": bool(settings.admin_token) or settings.serverless}
 
     @app.get("/api/meetings")
     def meetings(date_from: str = "", date_to: str = "", q: str = ""):
@@ -170,24 +187,48 @@ def create_app(settings: Settings | None = None, store: Store | None = None) -> 
         return PlainTextResponse(graphs.get().serialize(format="turtle"),
                                  media_type="text/turtle; charset=utf-8")
 
-    @app.post("/api/admin/collect")
+    @app.post("/api/admin/collect", dependencies=[Depends(require_admin)])
     def admin_collect(payload: dict[str, Any] = Body(...)):
-        from ..pipeline import collect, fetch_minutes
+        """회의 메타데이터 수집. date_from/date_to를 주면 일자별로 순회한다(본문은 fetch-minutes로)."""
+        from ..pipeline import collect, collect_range, pending_count
         if not settings.api_key:
             raise HTTPException(400, "ASSEMBLY_API_KEY가 설정되지 않았습니다.")
-        params = {"DAE_NUM": payload.get("dae", "22"), "CONF_DATE": payload.get("date"),
-                  **(payload.get("params") or {})}
+        extra = {str(k): str(v) for k, v in (payload.get("params") or {}).items()}
+        base = {"DAE_NUM": str(payload.get("dae") or "22"), **extra}
         log: list[str] = []
+        if settings.serverless and payload.get("date_from"):
+            from datetime import date
+            try:
+                span = (date.fromisoformat(payload.get("date_to") or payload["date_from"])
+                        - date.fromisoformat(payload["date_from"])).days
+            except ValueError as e:
+                raise HTTPException(400, f"날짜 형식 오류: {e}") from e
+            if span > 31:
+                raise HTTPException(400, "배포 환경에서는 실행시간 제한 때문에 한 번에 31일까지만 수집할 수 있습니다. "
+                                         "긴 기간은 GitHub Actions 「회의록 데이터 갱신」을 사용하세요.")
         try:
-            ms = collect(store, settings, params, progress=log.append)
-            if payload.get("fetch"):
-                fetch_minutes(store, settings, [m["meeting_id"] for m in ms], progress=log.append)
+            if payload.get("date_from"):
+                ms = collect_range(store, settings, payload["date_from"],
+                                   payload.get("date_to") or payload["date_from"],
+                                   base, progress=log.append)
+            else:
+                ms = collect(store, settings, {**base, "CONF_DATE": payload.get("date")},
+                             progress=log.append)
         except Exception as e:
             raise HTTPException(502, f"수집 실패: {e}") from e
         graphs.invalidate()
-        return {"meetings": len(ms), "log": log}
+        return {"meetings": len(ms), "pending": pending_count(store), "log": log}
 
-    @app.post("/api/admin/sample")
+    @app.post("/api/admin/fetch-minutes", dependencies=[Depends(require_admin)])
+    def admin_fetch_minutes(limit: int = Query(3, ge=1, le=20)):
+        """본문 미수집 회의를 limit건씩 처리(서버리스 실행시간 제한 대응). pending이 0이 될 때까지 반복 호출."""
+        from ..pipeline import fetch_minutes, pending_count
+        log: list[str] = []
+        ok = fetch_minutes(store, settings, limit=limit, progress=log.append)
+        graphs.invalidate()
+        return {"parsed": ok, "pending": pending_count(store), "log": log}
+
+    @app.post("/api/admin/sample", dependencies=[Depends(require_admin)])
     def admin_sample():
         from ..pipeline import load_sample
         n = load_sample(store)

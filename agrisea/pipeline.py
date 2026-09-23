@@ -30,6 +30,47 @@ def collect(store: Store, settings: Settings, params: dict[str, Any],
     return meetings
 
 
+def collect_range(store: Store, settings: Settings, date_from: str, date_to: str,
+                  params: dict[str, Any] | None = None, only_target: bool = True,
+                  progress: Callable[[str], None] = print) -> list[dict]:
+    """회의일자(CONF_DATE)를 하루씩 바꿔 가며 수집(API가 일자 인자를 요구하는 경우)."""
+    from datetime import date, timedelta
+
+    start, end = date.fromisoformat(date_from), date.fromisoformat(date_to)
+    if end < start:
+        raise ValueError("종료일이 시작일보다 빠릅니다.")
+    if (end - start).days > 366:
+        raise ValueError("한 번에 최대 1년까지 수집할 수 있습니다.")
+    client = AssemblyClient(settings)
+    found: list[dict] = []
+    day = start
+    while day <= end:
+        q = {**(params or {}), "CONF_DATE": day.isoformat()}
+        for m in client.committee_meetings(only_target=only_target, **q):
+            store.upsert_meeting(m)
+            found.append(m)
+        day += timedelta(days=1)
+    progress(f"{date_from}~{date_to}: 회의 {len(found)}건 메타데이터 저장")
+    return found
+
+
+def pending_count(store: Store) -> int:
+    return sum(1 for m in store.meetings() if m["text_status"] == "pending")
+
+
+def seed_store(settings: Settings) -> bool:
+    """배포 번들의 초기 DB를 쓰기 가능한 위치로 복사(서버리스 콜드스타트용)."""
+    import shutil
+
+    from .config import SEED_DB
+
+    if settings.db_path.exists() or not SEED_DB.exists():
+        return False
+    settings.ensure_dirs()
+    shutil.copyfile(SEED_DB, settings.db_path)
+    return True
+
+
 def html_to_text(raw: str) -> str:
     raw = re.sub(r"(?is)<(script|style).*?</\1>", " ", raw)
     raw = re.sub(r"(?i)<br\s*/?>|</p>|</div>|</tr>", "\n", raw)
@@ -57,9 +98,10 @@ def download_minutes_text(url: str, dest_dir: Path, name: str,
 
 def fetch_minutes(store: Store, settings: Settings, meeting_ids: list[str] | None = None,
                   limit: int | None = None, progress: Callable[[str], None] = print) -> int:
+    retry = ("pending",) if limit else ("pending", "failed")  # 배치 모드에선 실패 건 무한 재시도 방지
     targets = [m for m in store.meetings()
                if (meeting_ids and m["id"] in meeting_ids)
-               or (not meeting_ids and m["text_status"] in ("pending", "failed"))]
+               or (not meeting_ids and m["text_status"] in retry)]
     if limit:
         targets = targets[:limit]
     ok = 0

@@ -112,10 +112,15 @@ pre{white-space:pre-wrap;font-size:13px}
   <div class="card">
     <h2>데이터 수집</h2>
     <p class="muted">열린국회정보 위원회 회의록 API에서 농림축산식품해양수산위원회 회의를 가져옵니다. 서버에 <code>ASSEMBLY_API_KEY</code>가 설정되어 있어야 합니다.</p>
+    <div id="storageNotice"></div>
     <div class="row">
       <label>대수 <input id="colDae" value="22" size="3"></label>
-      <label>회의일자 <input id="colDate" placeholder="2025-10-14" size="12"></label>
+      <label>회의일자 <input id="colFrom" placeholder="2025-10-14" size="11"></label> ~
+      <input id="colTo" placeholder="(하루만이면 비움)" size="13" aria-label="종료일">
       <label><input type="checkbox" id="colFetch" checked> 회의록 본문까지</label>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <input id="adminToken" type="password" placeholder="관리자 토큰 (ADMIN_TOKEN)" autocomplete="off">
       <button class="primary" id="colBtn">수집</button>
       <button class="ghost" id="sampleBtn">가상 예시 데이터 적재</button>
     </div>
@@ -219,6 +224,9 @@ document.querySelectorAll("#tabs button").forEach(b => b.onclick = () => {
 // 대시보드
 async function loadDash(){
   const s = await api("/api/stats");
+  $("#storageNotice").innerHTML = s.storage==="ephemeral" || s.storage==="seed"
+    ? `<div class="notice">배포(서버리스) 환경입니다. 여기서 수집한 데이터는 임시 저장소(/tmp)에 쌓여 인스턴스가 재시작되면 사라집니다${s.storage==="seed"?" (저장소의 초기 데이터 data/seed.sqlite3는 유지)":""}. 영구 반영은 GitHub Actions 「회의록 데이터 갱신」 워크플로를 사용하세요.</div>` : "";
+  $("#adminToken").style.display = s.admin_required ? "" : "none";
   $("#sampleNotice").innerHTML = s.samples ? `<div class="notice">현재 가상 예시 회의록 ${s.samples}건이 포함되어 있습니다. 실제 분석에는 API 수집 데이터를 사용하세요.</div>` : "";
   const items = [["회의",s.meetings],["본문 파싱",s.parsed],["발언",s.utterances],["위원 질의",s.questions],["이행약속 답변",s.commitments]];
   $("#stats").innerHTML = items.map(([k,v]) => `<div class="card stat"><b>${(v??0).toLocaleString()}</b><span>${k}</span></div>`).join("")
@@ -229,15 +237,38 @@ async function loadDash(){
   const orgs = (await api("/api/orgs")).filter(o=>o.mentions).sort((a,b)=>b.mentions-a.mentions).slice(0,10);
   $("#dashOrgs").innerHTML = orgs.length ? `<table><tr><th>기관</th><th>언급 발언</th><th>이행약속</th></tr>${orgs.map(o=>`<tr><td>${esc(o.name)}</td><td>${o.mentions}</td><td>${o.commitments}</td></tr>`).join("")}</table>` : '<span class="muted">데이터 없음</span>';
 }
+function adminHeaders(json){
+  const h = json ? {"content-type":"application/json"} : {};
+  const t = $("#adminToken").value.trim();
+  if(t){ h["x-admin-token"] = t; try{ sessionStorage.setItem("agrisea-admin", t) }catch(e){} }
+  return h;
+}
+try{ $("#adminToken").value = sessionStorage.getItem("agrisea-admin") || "" }catch(e){}
 $("#colBtn").onclick = async () => {
-  $("#colLog").textContent = "수집 중…";
+  const log = msg => { $("#colLog").textContent += msg + "\n" };
+  $("#colLog").textContent = ""; log("목록 수집 중…");
   try{
-    const r = await api("/api/admin/collect", {method:"POST", headers:{"content-type":"application/json"},
-      body: JSON.stringify({dae:$("#colDae").value, date:$("#colDate").value||null, fetch:$("#colFetch").checked})});
-    $("#colLog").textContent = r.log.join("\n"); loadDash();
-  }catch(e){ $("#colLog").textContent = "오류: " + e.message }
+    const from = $("#colFrom").value.trim(), to = $("#colTo").value.trim();
+    const body = {dae:$("#colDae").value, date: from || null};
+    if(from && to) Object.assign(body, {date_from: from, date_to: to});
+    const r = await api("/api/admin/collect", {method:"POST", headers: adminHeaders(true), body: JSON.stringify(body)});
+    r.log.forEach(log);
+    // 서버리스 실행시간 제한 때문에 본문은 몇 건씩 나눠 처리
+    let pending = r.pending;
+    while($("#colFetch").checked && pending > 0){
+      log(`회의록 본문 처리 중… (남은 ${pending}건)`);
+      const f = await api("/api/admin/fetch-minutes?limit=3", {method:"POST", headers: adminHeaders()});
+      f.log.forEach(log);
+      if(f.pending >= pending && f.parsed === 0 && !f.log.length) break;
+      pending = f.pending;
+    }
+    log("완료"); loadDash(); fillBriefSelectors();
+  }catch(e){ log("오류: " + e.message) }
 };
-$("#sampleBtn").onclick = async () => { await api("/api/admin/sample",{method:"POST"}); loadDash(); fillBriefSelectors(); };
+$("#sampleBtn").onclick = async () => {
+  try{ await api("/api/admin/sample",{method:"POST", headers: adminHeaders()}); loadDash(); fillBriefSelectors() }
+  catch(e){ $("#colLog").textContent = "오류: " + e.message }
+};
 
 // 검색
 async function doSearch(){

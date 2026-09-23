@@ -76,3 +76,16 @@ def test_requires_key(tmp_path):
     from agrisea.config import Settings
     with pytest.raises(ValueError):
         AssemblyClient(Settings(api_key="", data_dir=tmp_path))
+
+
+def test_network_error_redacts_key(settings):
+    import requests
+
+    class Boom:
+        def get(self, url, params=None, timeout=None):
+            raise requests.ConnectionError(f"failed {url}?KEY={params['KEY']}&pIndex=1")
+
+    client = AssemblyClient(settings, session=Boom())
+    with pytest.raises(AssemblyAPIError) as e:
+        client.fetch_page()
+    assert "TEST" not in str(e.value) and "***" in str(e.value)

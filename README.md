@@ -67,6 +67,10 @@ python -m agrisea collect --dae 22 --date 2024-10-07 --fetch
 # API 요청인자를 직접 추가(KEY=VALUE 반복 가능)
 python -m agrisea collect --dae 22 --param CONF_DATE=2024 --fetch
 
+# 기간 수집(회의일자를 하루씩 바꿔 호출) / 최근 N일
+python -m agrisea collect --dae 22 --from 2024-10-01 --to 2024-10-31 --fetch
+python -m agrisea collect --dae 22 --days 14 --fetch
+
 # 이미 저장된 회의 중 본문 미수집 건만 다시 내려받기
 python -m agrisea fetch-minutes --limit 50
 ```
@@ -83,17 +87,49 @@ python -m agrisea ingest 회의록.pdf --title "제418회 국회(정기회) 제1
   --date 2024-10-07 --kind 국정감사 --agenda "농림축산식품부에 대한 국정감사"
 ```
 
-### 2) 웹 서비스
+### 2) Vercel 배포
+
+저장소에 Vercel용 설정(`vercel.json`, `api/index.py`)이 들어 있어 GitHub 저장소를 그대로 가져오면 됩니다.
+
+1. [vercel.com/new](https://vercel.com/new) → **Import Git Repository** → 이 저장소 선택
+   (Framework Preset: **Other**, Build/Output 설정은 비워 둠)
+2. **Environment Variables**에 다음을 등록(Production·Preview 모두)
+
+   | 이름 | 필수 | 설명 |
+   |---|---|---|
+   | `ASSEMBLY_API_KEY` | 예 | 열린국회정보 인증키 |
+   | `ADMIN_TOKEN` | 예 | 수집·적재 기능 보호용 임의 문자열(길게). 없으면 배포 환경에서 관리 기능이 꺼짐 |
+   | `ANTHROPIC_API_KEY` | 아니오 | Claude 심층 요약 사용 시 |
+   | `AGRISEA_LLM_MODEL` | 아니오 | 기본 `claude-opus-5` |
+
+3. **Deploy**. 이후 `main`에 푸시할 때마다 자동 배포됩니다.
+
+배포 후 대시보드 「데이터 수집」에서 관리자 토큰을 넣고 회의일자(또는 31일 이내 기간)를 지정해 수집합니다.
+인증키는 서버(함수)에서만 쓰이고 브라우저로 전달되지 않으며, 오류 메시지에서도 `KEY=***`로 가려집니다.
+
+**서버리스 저장소 주의**: Vercel 함수는 `/tmp`만 쓸 수 있고 인스턴스가 바뀌면 초기화됩니다. 그래서 두 가지 경로를 둡니다.
+
+- **영구 데이터(권장)**: GitHub Actions 「회의록 데이터 갱신」(`.github/workflows/refresh-data.yml`)이 API로 수집한 결과를
+  `data/seed.sqlite3`로 커밋 → Vercel이 재배포하면서 이 파일을 초기 데이터로 씁니다.
+  저장소 **Settings → Secrets and variables → Actions**에 `ASSEMBLY_API_KEY`를 등록하고,
+  **Actions** 탭에서 수동 실행(기간 지정)하거나 매주 월요일 06:00(KST) 자동 실행을 쓰면 됩니다.
+  로컬에서 수집한 DB를 올리려면 `python -m agrisea export-seed` 후 `data/seed.sqlite3`를 커밋하세요.
+- **즉석 수집**: 웹 화면에서 수집한 데이터는 해당 인스턴스가 살아 있는 동안만 유지됩니다(확인·시연용).
+
+함수 리전은 국회 API와 가까운 서울(`icn1`), 최대 실행시간은 60초로 설정되어 있습니다(`vercel.json`).
+회의록 본문은 실행시간 제한 때문에 화면에서 3건씩 나눠 자동 반복 처리합니다.
+
+### 3) 로컬 웹 서비스
 
 ```bash
 python -m agrisea serve --port 8000     # http://127.0.0.1:8000
 ```
 
 탭 구성: 대시보드 · 회의내용 검색 · 회의록·요약 · 쟁점 온톨로지 · 국감 브리핑 · SPARQL.
-대시보드에서 바로 API 수집도 실행할 수 있습니다. 수집·적재용 `/api/admin/*` 엔드포인트에는 인증이 없으므로
-외부에 공개할 때는 리버스 프록시 인증 등을 추가하세요(기본 바인딩은 `127.0.0.1`).
+대시보드에서 바로 API 수집도 실행할 수 있습니다. 수집·적재용 `/api/admin/*` 엔드포인트는 `ADMIN_TOKEN`을 설정하면
+`X-Admin-Token` 헤더가 일치해야 동작합니다(로컬에서는 미설정 시 개방, 배포 환경에서는 미설정 시 차단).
 
-### 3) CLI
+### 4) CLI
 
 ```bash
 python -m agrisea search 쌀값 시장격리                 # 발언 검색
@@ -105,7 +141,7 @@ python -m agrisea sparql "PREFIX ag: <https://w3id.org/agrisea/ontology#> SELECT
 python -m agrisea stats
 ```
 
-### 4) 시연용 예시 데이터
+### 5) 시연용 예시 데이터
 
 ```bash
 python -m agrisea sample
@@ -128,11 +164,14 @@ python -m agrisea sample
 | GET | `/api/graph` | 쟁점–기관–위원 관계망 |
 | POST | `/api/sparql` `{"query": "..."}` | 읽기 전용 SPARQL(SERVICE/갱신 구문 차단) |
 | GET | `/api/ontology.ttl` | 지식그래프 전체(Turtle) |
-| POST | `/api/admin/collect`, `/api/admin/sample` | 수집 / 예시 데이터 적재 |
+| POST | `/api/admin/collect` `{"dae","date"}` 또는 `{"dae","date_from","date_to"}` | 회의 목록 수집(관리자 토큰) |
+| POST | `/api/admin/fetch-minutes?limit=3` | 본문 미수집 회의를 limit건씩 처리, 남은 건수 반환(관리자 토큰) |
+| POST | `/api/admin/sample` | 가상 예시 데이터 적재(관리자 토큰) |
 
 ## 테스트
 
 ```bash
+pip install -r requirements-dev.txt
 python -m pytest -q
 ```
 

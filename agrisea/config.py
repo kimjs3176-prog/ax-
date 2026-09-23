@@ -34,14 +34,26 @@ def _load_dotenv(path: Path) -> None:
 
 _load_dotenv(ROOT / ".env")
 
+# Vercel 등 서버리스 환경: 배포 번들은 읽기 전용이고 /tmp만 쓸 수 있다.
+IS_SERVERLESS = bool(os.environ.get("VERCEL") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME"))
+# GitHub Actions 등으로 미리 수집해 저장소에 커밋해 둔 초기 데이터(있으면 기동 시 복사)
+SEED_DB = ROOT / "data" / "seed.sqlite3"
+
+
+def _default_data_dir() -> Path:
+    if os.environ.get("AGRISEA_DATA_DIR"):
+        return Path(os.environ["AGRISEA_DATA_DIR"])
+    return Path("/tmp/agrisea") if IS_SERVERLESS else ROOT / "var"
+
 
 @dataclass
 class Settings:
     api_key: str = field(default_factory=lambda: os.environ.get("ASSEMBLY_API_KEY", ""))
     api_url: str = field(default_factory=lambda: os.environ.get("ASSEMBLY_API_URL", API_URL))
-    data_dir: Path = field(
-        default_factory=lambda: Path(os.environ.get("AGRISEA_DATA_DIR", ROOT / "var"))
-    )
+    data_dir: Path = field(default_factory=_default_data_dir)
+    # 수집·적재 등 관리 기능 보호용 토큰. 서버리스(공개 URL)에서는 설정하지 않으면 관리 기능이 꺼진다.
+    admin_token: str = field(default_factory=lambda: os.environ.get("ADMIN_TOKEN", ""))
+    serverless: bool = IS_SERVERLESS
     llm_model: str = field(
         default_factory=lambda: os.environ.get("AGRISEA_LLM_MODEL", "claude-opus-5")
     )

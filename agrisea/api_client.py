@@ -104,9 +104,18 @@ class AssemblyClient:
         query = {"KEY": self.settings.api_key, "Type": "json",
                  "pIndex": p_index, "pSize": p_size}
         query.update({k: v for k, v in params.items() if v not in (None, "")})
-        resp = self.http.get(self.settings.api_url, params=query, timeout=self.timeout)
-        resp.raise_for_status()
-        return self.parse_response(resp.json())
+        try:
+            resp = self.http.get(self.settings.api_url, params=query, timeout=self.timeout)
+            resp.raise_for_status()
+            data = resp.json()
+        except (requests.RequestException, ValueError) as e:
+            # 예외 메시지에 요청 URL(인증키 포함)이 들어가므로 가린 뒤 전달
+            raise AssemblyAPIError("HTTP", self._redact(str(e))) from None
+        return self.parse_response(data)
+
+    def _redact(self, text: str) -> str:
+        key = self.settings.api_key
+        return text.replace(key, "***") if key else text
 
     def parse_response(self, data: dict[str, Any]) -> Page:
         if "RESULT" in data and self.service not in data:
