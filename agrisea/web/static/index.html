@@ -167,6 +167,8 @@ details.more[open]>summary{display:none}
 .rowlist .r .n{font-size:12px;color:var(--ink-2);min-width:60px;text-align:right}
 .hit-snip{font-size:14px;line-height:1.55;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 @media (max-width:640px){.mini{grid-template-columns:repeat(2,1fr)}.rowlist .r{grid-template-columns:70px 1fr}.rowlist .r .n{display:none}}
+.toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:var(--ink);color:var(--panel);padding:8px 14px;border-radius:999px;font-size:13px;z-index:30}
+.searchbar{margin-bottom:16px}
 .chat-day{display:flex;justify-content:center;margin:18px 0 4px}
 .chat-day span{font-size:12px;color:var(--muted);background:var(--bg);border:1px solid var(--line);border-radius:999px;padding:3px 12px}
 .quote{border-left:3px solid var(--line);padding:6px 12px;margin:8px 0;font-size:14px}
@@ -281,11 +283,9 @@ h2::before{content:"";width:4px;height:15px;border-radius:2px;background:var(--b
     </div>
     <nav id="tabs">
       <button data-tab="dash" class="on">대시보드</button>
-      <button data-tab="meetings">회의록·요약</button>
-      <button data-tab="issues">쟁점 온톨로지</button>
-      <button data-tab="search">회의내용 검색</button>
+      <button data-tab="meetings">회의록</button>
+      <button data-tab="issues">쟁점 분석</button>
       <button data-tab="brief">국감 브리핑</button>
-      <button data-tab="sparql" class="adv">SPARQL(고급)</button>
     </nav>
   </div>
 </header>
@@ -301,6 +301,17 @@ h2::before{content:"";width:4px;height:15px;border-radius:2px;background:var(--b
     <p class="sub">색이 진할수록 그 회기에 많이 언급된 쟁점 · <span class="reg">파란 굵은 번호</span>는 정기회 · 칸에 마우스를 올리면 횟수 · 쟁점 이름을 누르면 상세</p>
     <div class="heat" id="heat"></div>
     <div class="scale"><span>적음</span><span class="grad"></span><span>많음</span><span>· 점선 칸 = 언급 없음</span></div>
+  </div>
+  <div class="card">
+    <h2>위원 · 쟁점 · 기관 신경망 <span class="muted" style="font-size:13px;font-weight:400">3D</span></h2>
+    <p class="sub">질의 위원(입력층) → 쟁점(은닉층) → 피감기관(출력층). 선이 밝을수록 함께 언급된 횟수가 많고, 흐르는 빛은 질의가 쟁점을 거쳐 기관으로 향하는 흐름입니다.</p>
+    <div id="netStage" class="net-stage" aria-label="위원·쟁점·기관 3D 관계망">
+      <div class="net-labels"></div>
+      <div class="net-tip"></div>
+      <div class="net-legend"><span><i style="background:#d7a6ea;color:#d7a6ea"></i>위원</span><span><i style="background:#7fd49a;color:#7fd49a"></i>쟁점</span><span><i style="background:#7fc0f0;color:#7fc0f0"></i>기관</span></div>
+      <div class="net-hud">드래그 회전 · 휠 확대 · 노드를 누르면 연결 고정 · 쟁점은 쟁점 분석으로</div>
+      <div class="net-loading">신경망을 불러오는 중…</div>
+    </div>
   </div>
   <div class="grid g3">
     <div class="card">
@@ -338,27 +349,23 @@ h2::before{content:"";width:4px;height:15px;border-radius:2px;background:var(--b
 
 <!-- 회의록 -->
 <section id="meetings">
+  <div class="card searchbar">
+    <div class="row">
+      <input type="search" id="q" placeholder="회의록 전체에서 찾기 — 예: 쌀값 시장격리, 산불 진화헬기, 오염수">
+      <select id="qType"><option value="">모든 발언자</option><option value="member">위원 질의만</option><option value="official">정부·기관 답변만</option></select>
+      <button class="primary" id="qBtn">검색</button>
+    </div>
+    <p class="muted" style="margin:8px 0 0;font-size:13px">여러 단어를 띄어 쓰면 모두 포함된 발언을 찾습니다 · 기간은 상단 <b>회기</b> · 회의를 고르면 요약·전체 회의록·질의응답·약속을 탭으로 봅니다.</p>
+  </div>
   <div class="two">
     <div class="card">
-      <input type="search" id="mq" placeholder="회의명·안건 검색" style="width:100%">
+      <input type="search" id="mq" placeholder="회의 목록 거르기(회의명·안건)" style="width:100%">
       <div id="mList"></div>
     </div>
     <div id="mDetail"><div class="card empty">왼쪽에서 회의를 선택하세요.</div></div>
   </div>
 </section>
 
-<!-- 검색 -->
-<section id="search">
-  <div class="card">
-    <div class="row">
-      <input type="search" id="q" placeholder="예: 쌀값 시장격리, 산불 진화헬기, 오염수">
-      <select id="qType"><option value="">모든 발언자</option><option value="member">위원 질의만</option><option value="official">정부·기관 답변만</option></select>
-      <button class="primary" id="qBtn">검색</button>
-    </div>
-    <p class="muted" style="margin:8px 0 0;font-size:13px">여러 단어를 띄어 쓰면 모두 포함된 발언을 찾습니다. 기간은 상단 <b>회기</b>에서 고릅니다.</p>
-  </div>
-  <div id="qOut"></div>
-</section>
 
 <!-- 쟁점 -->
 <section id="issues">
@@ -369,17 +376,6 @@ h2::before{content:"";width:4px;height:15px;border-radius:2px;background:var(--b
       <div id="tree"></div>
     </div>
     <div id="iDetail"><div class="card empty">왼쪽에서 쟁점을 선택하세요.</div></div>
-  </div>
-  <div class="card">
-    <h2>쟁점 신경망 <span class="muted" style="font-size:13px;font-weight:400">3D</span></h2>
-    <p class="sub">질의 위원(입력층) → 쟁점(은닉층) → 피감기관(출력층). 선이 밝을수록 함께 언급된 횟수가 많고, 흐르는 빛은 질의가 쟁점을 거쳐 기관으로 향하는 흐름입니다.</p>
-    <div id="netStage" class="net-stage" aria-label="위원·쟁점·기관 3D 관계망">
-      <div class="net-labels"></div>
-      <div class="net-tip"></div>
-      <div class="net-legend"><span><i style="background:#d7a6ea;color:#d7a6ea"></i>위원</span><span><i style="background:#7fd49a;color:#7fd49a"></i>쟁점</span><span><i style="background:#7fc0f0;color:#7fc0f0"></i>기관</span></div>
-      <div class="net-hud">드래그 회전 · 휠 확대 · 노드를 누르면 연결 고정 · 쟁점은 상세 보기</div>
-      <div class="net-loading">신경망을 불러오는 중…</div>
-    </div>
   </div>
 </section>
 
@@ -411,7 +407,7 @@ h2::before{content:"";width:4px;height:15px;border-radius:2px;background:var(--b
   <div class="card tablewrap" id="sOut"></div>
 </section>
 </main>
-<footer class="site-footer">농해수위 국정감사 온톨로지 서비스 · 자료: 열린국회정보 위원회 회의록 · 제작자 kimjs1408</footer>
+<footer class="site-footer">농해수위 국정감사 온톨로지 서비스 · 자료: 열린국회정보 위원회 회의록 · 제작자 kimjs1408 · <button class="link" onclick="openTab('sparql')">고급 도구(SPARQL)</button></footer>
 
 <script>
 const $ = s => document.querySelector(s);
@@ -462,6 +458,15 @@ $("#session").onchange = () => {
 };
 
 // ── 탭 ──
+// ── 주소(해시)로 화면 공유: #/meetings/회의ID, #/issues/쟁점ID, #/brief ──
+function setHash(h){ try{ history.replaceState(null, "", "#/" + h) }catch(e){} }
+function routeFromHash(){
+  const [tab, id] = decodeURIComponent(location.hash.replace(/^#\/?/, "")).split("/");
+  if(tab === "meetings" && id){ gotoMeeting(id); return true }
+  if(tab === "issues" && id){ gotoIssue(id); return true }
+  if(["meetings", "issues", "brief", "sparql"].includes(tab)){ openTab(tab); return true }
+  return false;
+}
 function openTab(t){
   document.querySelectorAll("#tabs button").forEach(x => x.classList.toggle("on", x.dataset.tab === t));
   document.querySelectorAll("main section").forEach(s => s.classList.toggle("on", s.id === t));
@@ -469,6 +474,7 @@ function openTab(t){
   if(t === "issues") loadIssues();
   if(t === "sparql") loadPresets();
   try{ localStorage.setItem("agrisea-tab", t) }catch(e){}
+  setHash(t === "dash" ? "" : t);
   scrollTo(0, 0);
 }
 document.querySelectorAll("#tabs button").forEach(b => b.onclick = () => openTab(b.dataset.tab));
@@ -511,6 +517,7 @@ async function loadDash(){
   const leaf = issues.filter(i => i.parent && i.count).sort((a, b) => b.count - a.count).slice(0, 14);
   $("#rank").innerHTML = leaf.length ? barsHtml(leaf, {onclick: "gotoIssue"}) : '<div class="empty">데이터 없음</div>';
   renderHero(leaf[0]?.label, latest ? ov.meetings.filter(m => m.session_no === latest.session_no).length : 0);
+  loadNet();
 
   $("#recent").innerHTML = ov.meetings.map(m => `
     <div class="item" onclick="gotoMeeting('${esc(m.id)}')">
@@ -585,61 +592,108 @@ function qaHtml(q){
   return `<div class="qa"><div class="bubble q"><div class="who">${esc(q.member)} 위원</div>${esc(q.question)}</div>
     ${q.answer ? `<div class="bubble a"><div class="who">${esc(q.answerer)} ${q.commitment ? '<span class="chip warn">약속</span>' : ""}</div>${esc(q.answer)}</div>` : ""}</div>`;
 }
+let transcript = null;   // {id, utts, agendas, filter, find}
 async function showMeeting(id, useLlm = false){
   selMeeting = id; document.querySelectorAll("#mList .item").forEach(el => el.classList.toggle("sel", el.dataset.id === id));
+  setHash("meetings/" + id);
   $("#mDetail").innerHTML = '<div class="card empty">불러오는 중…</div>';
   let s;
   try{ s = await api(`/api/meetings/${encodeURIComponent(id)}/summary?llm=${useLlm}`) }
   catch(e){ $("#mDetail").innerHTML = `<div class="card">오류: ${esc(e.message)}</div>`; return }
   const m = s.meeting, llm = s.llm, stats = await api("/api/stats");
   const agendas = s.agenda_summaries.filter(a => a.summary.length);
+  transcript = {id, utts: null, agendas: m.agendas, filter: "", find: "", limit: 300};
+  const nMain = m.agendas.filter(a => /^\s*\d+\s*\./.test(a)).length || m.agendas.length;
   $("#mDetail").innerHTML = `
     <div class="card">
+      ${searchState ? `<button class="link" style="font-size:13px" onclick="renderSearch()">← 「${esc(searchState.q)}」 검색 결과로</button>` : ""}
       <div class="muted" style="font-size:13px">${dot(m.date)} · ${esc(SESS[m.session_no]?.label || "")} ${m.is_sample ? '<span class="chip warn">가상 예시</span>' : ""}</div>
-      <h2 style="margin:4px 0 10px;font-size:19px">${esc(meetingShort(m))}</h2>
-      <div class="row" style="gap:10px">
-        ${m.pdf_url ? `<a href="${esc(m.pdf_url)}" target="_blank" rel="noopener" style="font-size:13px">회의록 원문(PDF)</a>` : ""}
+      <h2 style="margin:4px 0 8px;font-size:19px">${esc(meetingShort(m))}</h2>
+      <div class="row" style="gap:12px;font-size:13px">
+        ${m.pdf_url ? `<a href="${esc(m.pdf_url)}" target="_blank" rel="noopener">회의록 원문(PDF)</a>` : ""}
+        <button class="link" onclick="copyLink()">이 회의 링크 복사</button>
         ${stats.llm_enabled && !llm ? `<button class="ghost" id="llmBtn">Claude로 서술형 요약</button>` : ""}
       </div>
       <div class="mini">
-        <div><b>${fmt(m.agendas.filter(a => /^\s*\d+\s*\./.test(a)).length || m.agendas.length)}</b><span>안건</span></div>
+        <div><b>${fmt(nMain)}</b><span>안건</span></div>
         <div><b>${fmt(s.participants.members.length)}</b><span>질의 위원</span></div>
         <div><b>${fmt(s.participants.officials.length)}</b><span>정부·기관 답변자</span></div>
         <div><b>${fmt(s.commitments.length)}</b><span>정부 약속</span></div>
       </div>
-      ${s.composition ? `<h3>발언 구성</h3>${stackBar([
-        {label: "위원 질의", value: s.composition.member, color: "var(--member)"},
-        {label: "정부·기관 답변", value: s.composition.gov, color: "var(--gov)"},
-        {label: "위원장 진행", value: s.composition.chair, color: "var(--muted)"},
-        {label: "전문위원 등", value: s.composition.other, color: "var(--line)"}])}` : ""}
-      <h3>핵심 쟁점</h3>${s.key_issues.length ? barsHtml(s.key_issues.slice(0, 6).map(i => ({id: i.id, label: i.label, count: i.count})), {onclick: "gotoIssue"}) : '<span class="muted">-</span>'}
-      <h3>주요 발언 <span class="muted" style="font-weight:400;font-size:12px">카드를 누르면 전체 문장</span></h3>
-      ${(s.key_point_items || []).length ? pointCards(s.key_point_items) : `<ul style="margin:0;padding-left:20px">${s.key_points.map(p => `<li>${esc(p)}</li>`).join("") || "<li class='muted'>본문 없음</li>"}</ul>`}
-    </div>
-    ${llm ? `<div class="card"><h2>Claude 서술형 요약</h2><p>${esc(llm.overview)}</p>
-      <h3>핵심안건</h3><ul>${llm.key_agendas.map(a => `<li><b>${esc(a.agenda)}</b> — ${esc(a.summary)} ${a.outcome ? `<span class="chip gov">${esc(a.outcome)}</span>` : ""}</li>`).join("")}</ul>
-      <h3>국감 후속 점검사항</h3><ul>${llm.audit_followups.map(x => `<li>${esc(x)}</li>`).join("")}</ul></div>` : ""}
-    <div class="card"><h2>주요 질의와 답변</h2><p class="sub">쟁점이 많고 정부 약속이 나온 대화 순</p>
-      ${moreList(s.qa_highlights.map(qaHtml), 3, "개 질의응답") || '<div class="empty">질의 없음</div>'}</div>
-    ${s.commitments.length ? `<div class="card"><h2>정부 약속 <span class="muted" style="font-weight:400">${s.commitments.length}건</span></h2>
-      <div class="points">${s.commitments.map(c => `<div class="pt warn"><div class="who">${esc(c.speaker)}${chips(c.issues)}</div><div class="txt">${esc(c.text)}</div></div>`).join("")}</div></div>` : ""}
-    <div class="card"><details><summary>안건 ${m.agendas.length}건 보기${agendas.length ? ` · 안건별 요약 ${agendas.length}건` : ""}</summary>
-      ${agendas.map(a => `<h3>${esc(a.agenda)}</h3>${chips(a.issues)}<ul>${a.summary.map(x => `<li>${esc(x)}</li>`).join("")}</ul>`).join("")}
-      <ol style="font-size:13px;color:var(--ink-2)">${m.agendas.map(a => `<li>${esc(a.replace(/^\d+\.\s*/, ""))}</li>`).join("")}</ol></details></div>
-    <div class="card"><details id="fullBox"><summary>전체 발언 보기</summary><div id="fullUtts" class="muted">불러오는 중…</div></details></div>`;
+      ${segTabs("mTabs", [["sum", "요약"], ["full", "전체 회의록"], ["qa", `질의응답 ${s.qa_highlights.length}`], ["cm", `약속·자료요구 ${s.commitments.length + s.data_requests.length}`], ["ag", `안건 ${nMain}`]])}
+      <div class="segpanel on" data-seg="mTabs" data-k="sum">
+        ${s.composition ? `<h3 style="margin-top:0">발언 구성</h3>${stackBar([
+          {label: "위원 질의", value: s.composition.member, color: "var(--member)"},
+          {label: "정부·기관 답변", value: s.composition.gov, color: "var(--gov)"},
+          {label: "위원장 진행", value: s.composition.chair, color: "var(--muted)"},
+          {label: "전문위원 등", value: s.composition.other, color: "var(--line)"}])}` : ""}
+        <h3>핵심 쟁점</h3>${s.key_issues.length ? barsHtml(s.key_issues.slice(0, 6).map(i => ({id: i.id, label: i.label, count: i.count})), {onclick: "gotoIssue"}) : '<span class="muted">-</span>'}
+        ${llm ? `<h3>Claude 서술형 요약</h3><p>${esc(llm.overview)}</p>
+          <ul>${llm.key_agendas.map(a => `<li><b>${esc(a.agenda)}</b> — ${esc(a.summary)} ${a.outcome ? `<span class="chip gov">${esc(a.outcome)}</span>` : ""}</li>`).join("")}</ul>
+          <h3>국감 후속 점검사항</h3><ul>${llm.audit_followups.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
+        <h3>주요 발언 <span class="muted" style="font-weight:400;font-size:12px">카드를 누르면 전체 문장</span></h3>
+        ${(s.key_point_items || []).length ? pointCards(s.key_point_items) : `<ul style="margin:0;padding-left:20px">${s.key_points.map(p => `<li>${esc(p)}</li>`).join("") || "<li class='muted'>본문 없음</li>"}</ul>`}
+        ${s.qa_highlights.length ? `<h3>대표 질의응답</h3>${qaHtml(s.qa_highlights[0])}<button class="link" style="font-size:13px" onclick="segShow('mTabs','qa')">질의응답 전체 보기 →</button>` : ""}
+      </div>
+      <div class="segpanel" data-seg="mTabs" data-k="full">
+        <div class="row" style="margin-bottom:8px">
+          <input type="search" id="tFind" placeholder="이 회의록에서 찾기" style="flex:1 1 220px">
+          <div class="filterchips" id="tFilter" style="margin:0"></div>
+        </div>
+        <div id="tBody" class="muted">불러오는 중…</div>
+      </div>
+      <div class="segpanel" data-seg="mTabs" data-k="qa">
+        <p class="sub">쟁점이 많고 정부의 실질 답변·약속이 나온 대화 순</p>
+        ${s.qa_highlights.map(qaHtml).join("") || '<div class="empty">질의 없음</div>'}
+      </div>
+      <div class="segpanel" data-seg="mTabs" data-k="cm">
+        <h3 style="margin-top:0">정부 약속 ${s.commitments.length}건</h3>
+        <div class="points">${s.commitments.map(c => `<div class="pt warn" onclick="this.classList.toggle('open')"><div class="who">${esc(c.speaker)}${chips(c.issues)}</div><div class="txt">${esc(c.text)}</div></div>`).join("") || '<div class="muted">-</div>'}</div>
+        <h3>위원 자료요구 ${s.data_requests.length}건</h3>
+        <div class="points">${s.data_requests.map(d => `<div class="pt member" onclick="this.classList.toggle('open')"><div class="who">${esc(d.member)} 위원</div><div class="txt">${esc(d.text)}</div></div>`).join("") || '<div class="muted">-</div>'}</div>
+      </div>
+      <div class="segpanel" data-seg="mTabs" data-k="ag">
+        ${agendas.map(a => `<div class="pt" style="margin-bottom:8px"><div class="who">${esc(a.agenda)}${chips(a.issues)}</div><div class="txt">${a.summary.map(esc).join(" ")}</div></div>`).join("")}
+        <ol style="font-size:13px;color:var(--ink-2)">${m.agendas.map(a => `<li>${esc(a.replace(/^\d+\.\s*/, ""))}</li>`).join("")}</ol>
+      </div>
+    </div>`;
   const b = $("#llmBtn"); if(b) b.onclick = () => showMeeting(id, true);
-  $("#fullBox").ontoggle = async () => {
-    if(!$("#fullBox").open || $("#fullUtts").dataset.done) return;
-    const d = await api(`/api/meetings/${encodeURIComponent(id)}`);
-    $("#fullUtts").dataset.done = 1; $("#fullUtts").classList.remove("muted");
-    $("#fullUtts").innerHTML = d.utterances.map(u => uttHtml(u)).join("");
-  };
 }
-function uttHtml(u, q){
+async function loadTranscript(){
+  const t = transcript; if(!t || t.utts) return;
+  const d = await api(`/api/meetings/${encodeURIComponent(t.id)}`);
+  if(transcript !== t) return;
+  t.utts = d.utterances;
+  $("#tFind").oninput = e => { t.find = e.target.value.trim(); t.limit = 300; renderTranscript() };
+  renderTranscript();
+}
+function renderTranscript(){
+  const t = transcript, all = t.utts || [];
+  const cnt = {}; all.forEach(u => cnt[typeGroup(u.speaker_type)] = (cnt[typeGroup(u.speaker_type)] || 0) + 1);
+  $("#tFilter").innerHTML = [["", "전체", all.length], ...Object.keys(TYPE_LABEL).filter(k => cnt[k]).map(k => [k, TYPE_LABEL[k], cnt[k]])]
+    .map(([k, l, n]) => `<button class="${t.filter === k ? "on" : ""}" onclick="transcript.filter='${k}';transcript.limit=300;renderTranscript()">${l} ${fmt(n)}</button>`).join("");
+  const rows = all.filter(u => (!t.filter || typeGroup(u.speaker_type) === t.filter) && (!t.find || u.text.includes(t.find)));
+  let last = -1, html = "";
+  for(const u of rows.slice(0, t.limit)){
+    if(u.agenda_idx != null && u.agenda_idx !== last && t.agendas[u.agenda_idx]){
+      last = u.agenda_idx; html += `<div class="chat-day"><span>${esc(cut(t.agendas[u.agenda_idx].replace(/^\s*\d+\.\s*/, ""), 60))}</span></div>`;
+    }
+    html += uttHtml(u, "", t.find);
+  }
+  $("#tBody").classList.remove("muted");
+  $("#tBody").innerHTML = (t.find || t.filter ? `<p class="muted" style="font-size:13px">${fmt(rows.length)}개 발언</p>` : "") + (html || '<div class="empty">해당 발언 없음</div>')
+    + (rows.length > t.limit ? `<button class="ghost" style="width:100%;margin-top:8px" onclick="transcript.limit+=300;renderTranscript()">발언 ${fmt(Math.min(300, rows.length - t.limit))}개 더 보기 (남은 ${fmt(rows.length - t.limit)}개)</button>` : "");
+}
+function copyLink(){
+  try{ navigator.clipboard.writeText(location.href); }catch(e){}
+  const tip = document.createElement("div"); tip.textContent = "링크를 복사했습니다"; tip.className = "toast";
+  document.body.appendChild(tip); setTimeout(() => tip.remove(), 1600);
+}
+function uttHtml(u, q, hl = ""){
   const cls = u.speaker_type === "member" ? "member" : (["official", "witness"].includes(u.speaker_type) ? "gov" : "");
   const who = u.speaker_role === "위원" ? `${u.speaker_name} 위원` : `${u.speaker_role} ${u.speaker_name}`;
   const flags = (u.is_question ? '<span class="chip member">질의</span>' : "") + (u.is_commitment ? '<span class="chip warn">약속</span>' : "") + (u.is_data_request ? '<span class="chip warn">자료요구</span>' : "");
-  return `<div class="quote ${u.is_commitment ? "warn" : cls}"><div class="who">${esc(who)} ${flags}</div>${q ? snippet(u.text, q) : esc(u.text)}</div>`;
+  return `<div class="quote ${u.is_commitment ? "warn" : cls}"><div class="who">${esc(who)} ${flags}</div>${q ? snippet(u.text, q) : (hl ? esc(u.text).split(esc(hl)).join(`<mark>${esc(hl)}</mark>`) : esc(u.text))}</div>`;
 }
 
 // ── 검색 ──
@@ -670,11 +724,12 @@ function renderSearch(){
   const byMeeting = {};
   rows.forEach(u => (byMeeting[u.meeting_id] ||= {date: u.meeting_date, title: u.meeting_title, session: u.session_no, items: []}).items.push(u));
   const groups = Object.entries(byMeeting).map(([mid, g]) => `<div class="card">
-      <div class="muted" style="font-size:13px">${dot(g.date)} · ${esc(SESS[g.session]?.label || "")} · <button class="link" onclick="gotoMeeting('${esc(mid)}')">회의 요약 보기</button></div>
+      <div class="muted" style="font-size:13px">${dot(g.date)} · ${esc(SESS[g.session]?.label || "")} · <button class="link" onclick="showMeeting('${esc(mid)}')">회의 보기</button></div>
       <h2 style="margin:2px 0 8px">${esc(meetingShort({title: g.title, session_no: g.session}))} <span class="muted" style="font-size:13px;font-weight:400">${g.items.length}건</span></h2>
       <div class="points">${moreList(g.items.map(u => hitCard(u, q)), 3, "건", "points")}</div></div>`);
-  $("#qOut").innerHTML = `<div class="card">
-      <div><b>${scopeLabel()}</b>에서 <b>${fmt(r.count)}</b>건 · 회의 ${Object.keys(byMeeting).length}건${r.count >= 100 ? " (관련도 상위 100건)" : ""}</div>
+  selMeeting = null; document.querySelectorAll("#mList .item").forEach(el => el.classList.remove("sel"));
+  $("#mDetail").innerHTML = `<div class="card">
+      <div><b>「${esc(q)}」</b> · ${scopeLabel()}에서 <b>${fmt(r.count)}</b>건 · 회의 ${Object.keys(byMeeting).length}건${r.count >= 100 ? " (관련도 상위 100건)" : ""}</div>
       <div class="filterchips">${[["", "전체", r.results.length], ...Object.keys(TYPE_LABEL).filter(k => byType[k]).map(k => [k, TYPE_LABEL[k], byType[k]])]
         .map(([k, l, n]) => `<button class="${(filter || "") === k ? "on" : ""}" onclick="searchState.filter='${k}';renderSearch()">${l} ${fmt(n)}</button>`).join("")}</div>
       <div class="grid g2" style="margin-top:10px">
@@ -687,7 +742,7 @@ async function doSearch(){
   const q = $("#q").value.trim(); if(!q) return;
   const p = new URLSearchParams({q, speaker_type: $("#qType").value, limit: 100});
   if(cur()) p.set("session", cur());
-  $("#qOut").innerHTML = '<div class="card empty">검색 중…</div>';
+  $("#mDetail").innerHTML = '<div class="card empty">검색 중…</div>';
   searchState = {r: await api("/api/search?" + p), q, filter: ""};
   renderSearch();
 }
@@ -709,11 +764,10 @@ async function loadIssues(){
   $("#tree").innerHTML = barsHtml(rows, {onclick: "showIssue"});
   markSelected();
   if(!selIssue){ const first = rows.find(r => r.indent && r.count); if(first) showIssue(first.id) }
-  loadNet();
 }
 function markSelected(){ document.querySelectorAll("#tree .hit").forEach(el => el.classList.toggle("sel", el.dataset.key === selIssue)) }
 async function showIssue(id){
-  selIssue = id; markSelected();
+  selIssue = id; markSelected(); setHash("issues/" + id);
   $("#iDetail").innerHTML = '<div class="card empty">불러오는 중…</div>';
   const d = await api(`/api/issues/${encodeURIComponent(id)}?` + sessParam());
   const allSess = SESSIONS.map(s => s.session_no).sort((a, b) => a - b);
@@ -954,7 +1008,7 @@ function buildNet3d(THREE, stage, data){
   el.addEventListener("click", e => {
     if(moved) return;
     const n = nodeAt(e);
-    if(n && n.layer.kind === "issue"){ showIssue(n.id.slice(6)); $("#iDetail").scrollIntoView({behavior: "smooth", block: "start"}); }
+    if(n && n.layer.kind === "issue"){ gotoIssue(n.id.slice(6)); }
     locked = n && n !== locked ? n : null; paintLines(locked || hover);
   });
 
@@ -1071,6 +1125,7 @@ function segTabs(id, tabs){
 function segShow(id, k){
   document.querySelectorAll(`#${id} button`).forEach(b => b.classList.toggle("on", b.dataset.k === k));
   document.querySelectorAll(`[data-seg="${id}"]`).forEach(p => p.classList.toggle("on", p.dataset.k === k));
+  if(id === "mTabs" && k === "full") loadTranscript();
 }
 $("#bBtn").onclick = async () => {
   $("#bOut").innerHTML = '<div class="card empty">만드는 중…</div>';
@@ -1161,7 +1216,8 @@ $("#sampleBtn").onclick = async () => {
 (async () => {
   try{ await loadSessions() }catch(e){}
   loadDash(); fillBriefSelectors().catch(() => {});
-  try{ const t = localStorage.getItem("agrisea-tab"); if(t && t !== "dash") openTab(t) }catch(e){}
+  addEventListener("hashchange", routeFromHash);   // 링크로 들어오거나 뒤로 가기
+  if(!routeFromHash()){ try{ const t = localStorage.getItem("agrisea-tab"); if(t && !["dash", "search"].includes(t)) openTab(t) }catch(e){} }
 })();
 </script>
 </body>
