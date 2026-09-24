@@ -1,4 +1,4 @@
-# 농해수위 국정감사 온톨로지 서비스 (AgriSea Audit Ontology)
+# 국회 농해수위 온톨로지 (AgriSea Audit Ontology)
 배포페이지 : https://ax-rosy-seven.vercel.app/
 국회 **열린국회정보 「위원회 회의록」 Open API**(`ncwgseseafwbuheph`)로 **농림축산식품해양수산위원회** 회의록을 모아
 회의·안건·발언·발언자·피감기관·쟁점·이행약속을 잇는 **지식그래프(온톨로지)** 로 구조화합니다.
