@@ -268,6 +268,30 @@ h2::before{content:"";width:4px;height:15px;border-radius:2px;background:var(--b
 .clist .ci .t{font-size:14px;font-weight:600;line-height:1.5;margin:2px 0}
 .clist .ci .q{font-size:12px;color:var(--muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 #recent .item{padding:11px 0}
+
+/* 대시보드 배치: 빈 공간 없이 */
+.dashrow{align-items:stretch}
+.dashrow .card{margin-bottom:0;display:flex;flex-direction:column}
+.dashrow #rank{flex:1;display:flex}
+.dashrow #rank .bars{flex:1;align-content:space-between}
+.dashrow{margin-bottom:16px}
+.clist.cols2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:32px}
+.clist.cols2 .ci:last-child{border-bottom:1px solid var(--line)}
+.clist.cols2 .ci:nth-last-child(-n+2){border-bottom:0}
+@media (max-width:860px){.clist.cols2{grid-template-columns:1fr}.clist.cols2 .ci:nth-last-child(2){border-bottom:1px solid var(--line)}}
+.netwrap{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:16px;align-items:stretch}
+.netwrap .net-stage{height:520px}
+.netside{border:1px solid var(--line);border-radius:12px;padding:12px 14px;overflow:auto;max-height:520px}
+.netside h3{margin:12px 0 6px;font-size:13px}
+.netside .nl{padding:5px 0;cursor:pointer}
+.netside .nl:hover .nl-t span{color:var(--seq)}
+.netside .nl-t{display:flex;gap:6px;align-items:baseline;font-size:13px;min-width:0}
+.netside .nl-t span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:46%}
+.netside .nl-t i{font-style:normal;color:var(--muted)}
+.netside .nl-t b{margin-left:auto;font-size:12px;color:var(--ink-2);font-weight:500;font-variant-numeric:tabular-nums}
+.netside .nl-bar{display:block;height:4px;border-radius:2px;background:var(--seq);opacity:.75;margin-top:3px}
+@media (max-width:1000px){.netwrap{grid-template-columns:1fr}.netside{max-height:none}}
+@media (max-width:640px){.netwrap .net-stage{height:440px}}
 </style>
 </head>
 <body>
@@ -305,6 +329,7 @@ h2::before{content:"";width:4px;height:15px;border-radius:2px;background:var(--b
   <div class="card">
     <h2>위원 · 쟁점 · 기관 신경망 <span class="muted" style="font-size:13px;font-weight:400">3D</span></h2>
     <p class="sub">질의 위원(입력층) → 쟁점(은닉층) → 피감기관(출력층). 선이 밝을수록 함께 언급된 횟수가 많고, 흐르는 빛은 질의가 쟁점을 거쳐 기관으로 향하는 흐름입니다.</p>
+    <div class="netwrap">
     <div id="netStage" class="net-stage" aria-label="위원·쟁점·기관 3D 관계망">
       <div class="net-labels"></div>
       <div class="net-tip"></div>
@@ -312,23 +337,25 @@ h2::before{content:"";width:4px;height:15px;border-radius:2px;background:var(--b
       <div class="net-hud">드래그 회전 · 휠 확대 · 노드를 누르면 연결 고정 · 쟁점은 쟁점 분석으로</div>
       <div class="net-loading">신경망을 불러오는 중…</div>
     </div>
-  </div>
-  <div class="grid g3">
-    <div class="card">
-      <h2>많이 논의된 쟁점</h2>
-      <p class="sub">전체 회기 언급 횟수 · 누르면 쟁점 상세</p>
-      <div id="rank"></div>
+    <aside class="netside" id="netSide"><div class="muted" style="font-size:13px">연결을 불러오는 중…</div></aside>
     </div>
+  </div>
+  <div class="grid g2 dashrow">
     <div class="card">
       <h2>최근 회의</h2>
       <p class="sub">대표 안건과 핵심 쟁점 · 누르면 요약</p>
       <div id="recent"></div>
     </div>
     <div class="card">
-      <h2>최근 정부 약속</h2>
-      <p class="sub">무엇을 하겠다고 답했는지 · 국감 사후 점검 대상</p>
-      <div id="recentCommit" class="clist"></div>
+      <h2>많이 논의된 쟁점</h2>
+      <p class="sub">전체 회기 언급 횟수 · 누르면 쟁점 분석</p>
+      <div id="rank"></div>
     </div>
+  </div>
+  <div class="card">
+    <h2>최근 정부 약속</h2>
+    <p class="sub">무엇을 하겠다고 답했는지 · 앞선 위원 질의와 함께 · 국감 사후 점검 대상</p>
+    <div id="recentCommit" class="clist cols2"></div>
   </div>
   <div class="card">
     <details>
@@ -514,7 +541,7 @@ async function loadDash(){
   renderHero(null, 0);
 
   const [issues, trend, ov] = await Promise.all([api("/api/issues"), api("/api/issue-trend"), api("/api/overview")]);
-  const leaf = issues.filter(i => i.parent && i.count).sort((a, b) => b.count - a.count).slice(0, 14);
+  const leaf = issues.filter(i => i.parent && i.count).sort((a, b) => b.count - a.count);
   $("#rank").innerHTML = leaf.length ? barsHtml(leaf, {onclick: "gotoIssue"}) : '<div class="empty">데이터 없음</div>';
   renderHero(leaf[0]?.label, latest ? ov.meetings.filter(m => m.session_no === latest.session_no).length : 0);
   loadNet();
@@ -538,7 +565,7 @@ async function loadDash(){
         data-tip="${esc(SESS[c]?.label || "제" + c + "회")}<br><b>${esc(r.label)}</b> ${fmt(v)}회">${v}</td>` }).join("")}</tr>`).join("")}</tbody></table>`
     : '<div class="empty">데이터 없음</div>';
 
-  $("#recentCommit").innerHTML = ov.commitments.slice(0, 6).map(c => `
+  $("#recentCommit").innerHTML = ov.commitments.slice(0, 8).map(c => `
     <div class="ci"><div class="who"><b>${esc(c.speaker)}</b> · ${dot(c.date)} · <button class="link" onclick="gotoMeeting('${esc(c.meeting_id)}')">회의 보기</button></div>
       <div class="t">${esc(cut(c.text, 90))}</div>
       ${c.question ? `<div class="q">↳ ${esc(c.question.member)} 위원: ${esc(c.question.text)}</div>` : ""}</div>`).join("") || '<div class="empty">데이터 없음</div>';
@@ -812,6 +839,7 @@ async function loadNet(){
   const stage = $("#netStage");
   try{
     const data = await api("/api/graph");
+    netSide(data);
     let THREE = null;
     try{ THREE = await import(THREE_URL) }catch(e){ /* 오프라인 등: 2D로 대체 */ }
     stage.querySelector(".net-loading").remove();
@@ -821,6 +849,24 @@ async function loadNet(){
     netStarted = false;
     stage.querySelector(".net-loading").textContent = "관계망을 불러오지 못했습니다: " + e.message;
   }
+}
+function netSide(data){
+  // 신경망 옆: 가장 강한 연결(위원→쟁점, 쟁점→기관) — 그림을 읽는 길잡이
+  const byId = Object.fromEntries(data.nodes.map(n => [n.id, n]));
+  const pick = (a, b) => data.edges.filter(e => byId[e.source]?.kind === a && byId[e.target]?.kind === b
+      || byId[e.source]?.kind === b && byId[e.target]?.kind === a)
+    .map(e => { const x = byId[e.source], y = byId[e.target]; return x.kind === a ? {from: x, to: y, w: e.weight} : {from: y, to: x, w: e.weight} })
+    .sort((p, q) => q.w - p.w)
+    // 한 쟁점·기관이 목록을 독차지하지 않게: 같은 대상은 2번까지, 같은 출발점은 1번만
+    .filter(function(r){ const f = this.f, t = this.t; if(f[r.from.id] || (t[r.to.id] || 0) >= 2) return false; f[r.from.id] = 1; t[r.to.id] = (t[r.to.id] || 0) + 1; return true }, {f: {}, t: {}})
+    .slice(0, 5);
+  const block = (title, rows) => { const max = Math.max(1, ...rows.map(r => r.w)); return `<h3>${title}</h3>${rows.map(r => {
+      const iss = r.from.kind === "issue" ? r.from : r.to;
+      return `<div class="nl" onclick="gotoIssue('${esc(iss.id.slice(6))}')" data-tip="${esc(r.from.label)} → ${esc(r.to.label)} · ${fmt(r.w)}회">
+        <div class="nl-t"><span>${esc(r.from.label)}</span><i>→</i><span>${esc(r.to.label)}</span><b>${fmt(r.w)}</b></div>
+        <span class="nl-bar" style="width:${Math.max(4, r.w / max * 100)}%"></span></div>` }).join("")}` };
+  $("#netSide").innerHTML = `<div class="muted" style="font-size:12px">가장 강한 연결 · 누르면 쟁점 분석</div>`
+    + block("위원 → 쟁점", pick("member", "issue")) + block("쟁점 → 기관", pick("issue", "org"));
 }
 function netWebGL(){
   try{ const c = document.createElement("canvas"); return !!(c.getContext("webgl2") || c.getContext("webgl")) }catch(e){ return false }
