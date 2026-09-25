@@ -6,7 +6,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from fastapi import Body, FastAPI, HTTPException, Query
+from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, PlainTextResponse
 
 from .. import analysis
@@ -149,6 +149,16 @@ def create_app(settings: Settings | None = None, store: Store | None = None) -> 
                 raise HTTPException(502, f"LLM 요약 실패: {e}") from e
         base["llm"] = cached
         return base
+
+    @app.get("/api/meetings/{meeting_id}/export.md")
+    def meeting_export(meeting_id: str, request: Request, download: bool = False):
+        """외부 AI에 넣어 분석할 회의록 전문(Markdown)."""
+        base = str(request.base_url).rstrip("/")
+        md = analysis.meeting_markdown(store, meeting_id, base)
+        if md is None:
+            raise HTTPException(404, "회의를 찾을 수 없습니다.")
+        headers = {"Content-Disposition": f'attachment; filename="minutes-{meeting_id}.md"'} if download else {}
+        return PlainTextResponse(md, media_type="text/markdown; charset=utf-8", headers=headers)
 
     @app.get("/api/search")
     def search(q: str = Query(..., min_length=1), speaker_type: str = "", date_from: str = "",

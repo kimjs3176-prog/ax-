@@ -579,3 +579,40 @@ def overview(store: Store, recent: int = 6) -> dict:
     return {"meetings": out_m, "commitments": out_c}
 
 
+
+
+def meeting_markdown(store: Store, meeting_id: str, base_url: str = "") -> str | None:
+    """외부 AI(ChatGPT·Claude 등)에 붙여넣어 분석할 수 있는 회의록 전문(Markdown)."""
+    m = store.meeting(meeting_id)
+    if not m:
+        return None
+    utts = store.utterances(meeting_id=meeting_id)
+    s = store.summary(meeting_id, "rule") or summarize_meeting(store, meeting_id)
+    agendas = [re.sub(r"^\s*\d+\.\s*", "", a) for a in (m.get("agendas") or [])]
+    lines = [f"# {m.get('title') or '국회 농림축산식품해양수산위원회 회의록'}", "",
+             f"- 회의일: {m.get('date') or '-'}",
+             f"- 회기: 제{m.get('session_no') or '?'}회 국회",
+             f"- 발언 수: {len(utts)}"]
+    if m.get("pdf_url"):
+        lines.append(f"- 원문(PDF): {m['pdf_url']}")
+    if base_url:
+        lines.append(f"- 출처: 국회 농해수위 온톨로지 {base_url}/#meetings/{meeting_id}")
+    if agendas:
+        lines += ["", "## 안건", *[f"{i + 1}. {a}" for i, a in enumerate(agendas)]]
+    issues = [i["label"] for i in (s.get("key_issues") or [])[:8]]
+    if issues:
+        lines += ["", "## 자동 추출 핵심 쟁점(참고)", ", ".join(issues)]
+    lines += ["", "## 회의록 전문",
+              "(표기: **발언자**: 발언 / [질의]·[약속]·[자료요구]는 자동 분류 표시)"]
+    last = None
+    for u in utts:
+        ai = u.get("agenda_idx")
+        if ai is not None and ai != last and 0 <= ai < len(agendas):
+            last = ai
+            lines += ["", f"### {agendas[ai]}"]
+        role, name = u.get("speaker_role") or "", u.get("speaker_name") or ""
+        who = f"{name} 위원" if role == "위원" else f"{role} {name}".strip()
+        tags = "".join(t for k, t in (("is_question", "[질의]"), ("is_commitment", "[약속]"),
+                                       ("is_data_request", "[자료요구]")) if u.get(k))
+        lines += ["", f"**{who}**{(' ' + tags) if tags else ''}: {u.get('text', '').strip()}"]
+    return "\n".join(lines) + "\n"

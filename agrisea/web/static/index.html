@@ -168,6 +168,10 @@ details.more[open]>summary{display:none}
 .hit-snip{font-size:14px;line-height:1.55;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 @media (max-width:640px){.mini{grid-template-columns:repeat(2,1fr)}.rowlist .r{grid-template-columns:70px 1fr}.rowlist .r .n{display:none}}
 .toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:var(--ink);color:var(--panel);padding:8px 14px;border-radius:999px;font-size:13px;z-index:30}
+.aibar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:12px 0 4px;padding:10px 12px;border:1px dashed var(--line);border-radius:10px;background:var(--bg);font-size:13px}
+.aibar b{margin-right:4px}
+.aibar button{font-size:13px;padding:5px 11px}
+.aibar .sub{flex-basis:100%;margin:0;font-size:12px}
 .searchbar{margin-bottom:16px}
 .chat-day{display:flex;justify-content:center;margin:18px 0 4px}
 .chat-day span{font-size:12px;color:var(--muted);background:var(--bg);border:1px solid var(--line);border-radius:999px;padding:3px 12px}
@@ -641,6 +645,15 @@ async function showMeeting(id, useLlm = false){
         <button class="link" onclick="copyLink()">이 회의 링크 복사</button>
         ${stats.llm_enabled && !llm ? `<button class="ghost" id="llmBtn">Claude로 서술형 요약</button>` : ""}
       </div>
+      <div class="aibar">
+        <b>내 AI로 분석</b>
+        <button class="ghost" onclick="openInAI('chatgpt')">ChatGPT에서 열기</button>
+        <button class="ghost" onclick="openInAI('claude')">Claude에서 열기</button>
+        <button class="ghost" onclick="copyMinutes()">전문+분석 요청 복사</button>
+        <a href="/api/meetings/${encodeURIComponent(id)}/export.md?download=1">전문 다운로드(.md)</a>
+        <a href="/api/meetings/${encodeURIComponent(id)}/export.md" target="_blank" rel="noopener">전문 링크</a>
+        <p class="sub muted">AI 버튼을 누르면 분석 요청이 입력된 새 창이 열리고, 회의록 전문이 클립보드에 복사됩니다. 새 창에서 붙여넣기(Ctrl+V)하면 됩니다.</p>
+      </div>
       <div class="mini">
         <div><b>${fmt(nMain)}</b><span>안건</span></div>
         <div><b>${fmt(s.participants.members.length)}</b><span>질의 위원</span></div>
@@ -685,6 +698,46 @@ async function showMeeting(id, useLlm = false){
       </div>
     </div>`;
   const b = $("#llmBtn"); if(b) b.onclick = () => showMeeting(id, true);
+  prefetchMinutes(id);
+}
+// ── 외부 AI(ChatGPT·Claude)로 회의록 넘기기 ──
+// 긴 전문은 URL에 담을 수 없으므로, 분석 요청(짧은 프롬프트+전문 링크)은 URL로 넘기고 전문은 클립보드에 복사한다.
+let minutesMd = {id: null, text: null};
+async function prefetchMinutes(id){
+  if(minutesMd.id === id && minutesMd.text) return minutesMd.text;
+  minutesMd = {id, text: null};
+  try{
+    const r = await fetch(`/api/meetings/${encodeURIComponent(id)}/export.md`);
+    if(r.ok && minutesMd.id === id) minutesMd.text = await r.text();
+  }catch(e){}
+  return minutesMd.text;
+}
+function aiPrompt(id){
+  const url = `${location.origin}/api/meetings/${encodeURIComponent(id)}/export.md`;
+  return `국회 농림축산식품해양수산위원회 회의록을 분석해줘.\n회의록 전문: ${url}\n(링크를 열 수 없으면 내가 이어서 붙여넣는 전문을 기준으로 해줘)\n\n`
+    + `1) 회의 개요와 핵심 쟁점 3~5개\n2) 위원별 주요 질의와 정부·기관 답변 요지\n3) 정부가 약속한 사항과 이행 점검 포인트\n4) 국정감사에서 이어갈 후속 질의 제안\n`
+    + `발언자와 인용 근거를 함께 적어줘.`;
+}
+function toast(msg){
+  const t = document.createElement("div"); t.textContent = msg; t.className = "toast";
+  document.body.appendChild(t); setTimeout(() => t.remove(), 2600);
+}
+function copyText(text){
+  if(navigator.clipboard?.writeText) return navigator.clipboard.writeText(text).then(() => true, () => false);
+  return Promise.resolve(false);
+}
+async function copyMinutes(){
+  const id = selMeeting, text = await prefetchMinutes(id);
+  if(!text){ toast("회의록 전문을 불러오지 못했습니다"); return }
+  toast(await copyText(aiPrompt(id) + "\n\n---\n\n" + text) ? "분석 요청과 회의록 전문을 복사했습니다. 사용하는 AI에 붙여넣으세요" : "복사에 실패했습니다. 전문 링크를 이용하세요");
+}
+function openInAI(kind){
+  const id = selMeeting, q = encodeURIComponent(aiPrompt(id));
+  const url = kind === "claude" ? `https://claude.ai/new?q=${q}` : `https://chatgpt.com/?q=${q}`;
+  // 새 창으로 포커스가 넘어가기 전에 복사를 시작해야 클립보드 쓰기가 허용된다.
+  const copied = minutesMd.id === id && minutesMd.text ? copyText(minutesMd.text) : Promise.resolve(false);
+  window.open(url, "_blank", "noopener");
+  copied.then(ok => toast(ok ? "회의록 전문을 복사했습니다. 열린 창에 붙여넣기(Ctrl+V) 하세요" : "분석 요청을 열었습니다. 전문은 링크로 전달됩니다"));
 }
 async function loadTranscript(){
   const t = transcript; if(!t || t.utts) return;
