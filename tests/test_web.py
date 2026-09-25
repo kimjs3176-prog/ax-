@@ -45,3 +45,13 @@ def test_issue_dialogue_pairs_question_and_answer(store, settings):
     t = d["dialogue"][0]
     assert t["turns"][0]["side"] == "q" and t["turns"][0]["speaker"].endswith("위원")
     assert any(x["side"] == "a" for x in t["turns"])
+
+
+def test_meeting_export_markdown(store, settings):
+    c = TestClient(create_app(settings, store))
+    r = c.get("/api/meetings/SAMPLE-2025-1014/export.md")
+    assert r.status_code == 200 and r.headers["content-type"].startswith("text/markdown")
+    assert "## 회의록 전문" in r.text and "**" in r.text
+    d = c.get("/api/meetings/SAMPLE-2025-1014/export.md", params={"download": 1})
+    assert "attachment" in d.headers["content-disposition"]
+    assert c.get("/api/meetings/nope/export.md").status_code == 404
