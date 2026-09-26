@@ -186,10 +186,6 @@ details.more[open]>summary{display:none}
 .hit-snip{font-size:14px;line-height:1.55;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 @media (max-width:640px){.mini{grid-template-columns:repeat(2,1fr)}.rowlist .r{grid-template-columns:70px 1fr}.rowlist .r .n{display:none}}
 .toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:var(--ink);color:var(--panel);padding:8px 14px;border-radius:999px;font-size:13px;z-index:30}
-.aibar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:12px 0 4px;padding:10px 12px;border:1px dashed var(--line);border-radius:10px;background:var(--bg);font-size:13px}
-.aibar b{margin-right:4px}
-.aibar button{font-size:13px;padding:5px 11px}
-.aibar .sub{flex-basis:100%;margin:0;font-size:12px}
 .searchbar{margin-bottom:16px}
 .chat-day{display:flex;justify-content:center;margin:18px 0 4px}
 .chat-day span{font-size:12px;color:var(--muted);background:var(--bg);border:1px solid var(--line);border-radius:999px;padding:3px 12px}
@@ -314,6 +310,60 @@ h2::before{content:"";width:4px;height:15px;border-radius:2px;background:var(--b
 .netside .nl-bar{display:block;height:4px;border-radius:2px;background:var(--seq);opacity:.75;margin-top:3px}
 @media (max-width:1000px){.netwrap{grid-template-columns:1fr}.netside{max-height:none}}
 @media (max-width:640px){.netwrap .net-stage{height:440px}}
+/* ═══ v3: 가독성·직관성 ═══ */
+:root{--muted:#5c6761;--ink-2:#3c4641}
+:root[data-theme="dark"]{--muted:#a3b0a9;--ink-2:#cdd5d0}
+@media (prefers-color-scheme: dark){:root:where(:not([data-theme="light"])){--muted:#a3b0a9;--ink-2:#cdd5d0}}
+.sub{font-size:13.5px;line-height:1.6}
+.bubble,.quote,.pt{font-size:15px;line-height:1.72}
+.bubble .who,.pt .who{font-size:12.5px}
+.bubble{max-width:82%}
+.bubble.short{padding:5px 12px;font-size:13.5px;color:var(--ink-2);display:table}
+.bubble.short .who{display:inline;margin-right:6px}
+.chip{font-size:12.5px}
+h3{font-size:14.5px;color:var(--ink)}
+:focus-visible{outline:2px solid var(--seq);outline-offset:2px;border-radius:6px}
+/* 헤더 검색 */
+.gsearch{flex:1 1 280px;max-width:460px;display:flex}
+.gsearch input{width:100%;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.25);color:#fff;border-radius:999px;padding:8px 16px 8px 36px;font:inherit;font-size:14px;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%23cfe3da' stroke-width='2'%3E%3Ccircle cx='7' cy='7' r='5'/%3E%3Cpath d='m11 11 4 4'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:13px center}
+.gsearch input::placeholder{color:var(--band-muted)}
+.gsearch input:focus{background-color:rgba(255,255,255,.2);outline:none;border-color:#7fd49a}
+/* 화면 머리말 */
+.pagehead{margin:0 0 14px}
+.pagehead h2{font-size:20px;margin:0 0 2px}
+.pagehead h2::before{height:18px}
+.pagehead p{margin:0;color:var(--ink-2);font-size:14px}
+/* 빠른 시작 */
+.quick{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:16px}
+.quick button{display:flex;gap:12px;align-items:flex-start;text-align:left;background:var(--panel);border:1px solid color-mix(in oklab,var(--line) 70%,transparent);box-shadow:var(--shadow);border-radius:var(--radius);padding:14px 16px;cursor:pointer;font:inherit;color:var(--ink);transition:transform .12s,border-color .12s}
+.quick button:hover{transform:translateY(-1px);border-color:var(--brand)}
+.quick .ic{flex:none;width:36px;height:36px;border-radius:10px;display:grid;place-items:center;font-size:18px;background:var(--brand-weak)}
+.quick b{display:block;font-size:15px}
+.quick span{display:block;font-size:12.5px;color:var(--muted);line-height:1.45;margin-top:2px}
+@media (max-width:900px){.quick{grid-template-columns:repeat(2,minmax(0,1fr))}}
+/* 회의 상세 동작 버튼 */
+.actbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:4px 0 2px}
+.actbar a,.actbar button,.dd>summary{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:8px;padding:6px 12px;font:inherit;font-size:13.5px;cursor:pointer;text-decoration:none;list-style:none}
+.actbar a:hover,.actbar button:hover,.dd>summary:hover{border-color:var(--brand);color:var(--brand)}
+.dd{position:relative}
+.dd>summary::-webkit-details-marker{display:none}
+.dd>summary.ai{background:var(--brand);border-color:var(--brand);color:#fff;font-weight:600}
+.dd>summary.ai:hover{color:#fff;filter:brightness(1.08)}
+.dd .menu{position:absolute;z-index:20;top:calc(100% + 6px);left:0;width:min(320px,86vw);background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.14);padding:6px}
+.dd .menu button,.dd .menu a{display:block;width:100%;text-align:left;border:0;background:none;padding:9px 10px;border-radius:8px;font:inherit;font-size:14px;color:var(--ink);cursor:pointer;text-decoration:none}
+.dd .menu button:hover,.dd .menu a:hover{background:var(--bg)}
+.dd .menu small{display:block;color:var(--muted);font-size:12px}
+.dd .menu p{margin:6px 10px 4px;font-size:12px;color:var(--muted);line-height:1.5}
+/* 브리핑 시작 안내 */
+.starter h3{margin:14px 0 6px}
+.starter .ex{display:flex;flex-wrap:wrap;gap:6px}
+.starter .ex button{border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:5px 12px;font:inherit;font-size:13.5px;cursor:pointer;color:var(--ink)}
+.starter .ex button:hover{border-color:var(--brand);color:var(--brand)}
+.starter ol{margin:6px 0 0;padding-left:20px;color:var(--ink-2);font-size:14px}
+@media (max-width:640px){.gsearch{order:3;flex-basis:100%;max-width:none}.bubble{max-width:94%}
+  .quick{gap:10px}.quick button{flex-direction:column;gap:8px;padding:12px}.quick .ic{width:30px;height:30px;font-size:16px}
+  .pagehead h2{font-size:18px}.pagehead p{font-size:13.5px}}
 </style>
 </head>
 <body>
@@ -325,6 +375,9 @@ h2::before{content:"";width:4px;height:15px;border-radius:2px;background:var(--b
           <path d="M9 18c0-6 5-10 12-10-1 7-5 11-12 10z" fill="#7fd49a"/><path d="M6 23c3-2 6-2 9 0s6 2 9 0 5-2 6-1" stroke="#7fc0f0" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
         <h1>국회 농해수위 온톨로지<small>국회 농림축산식품해양수산위원회 회의록 분석</small></h1>
       </div>
+      <form class="gsearch" id="gsearch" role="search" onsubmit="event.preventDefault();globalSearch()">
+        <input type="search" id="gq" placeholder="회의록 검색 — 쌀값, 산불, 오염수…" aria-label="회의록 전체 검색">
+      </form>
       <label class="sessionbar">회기 <select id="session"><option value="">전체 회기</option></select></label>
     </div>
     <nav id="tabs">
@@ -343,6 +396,12 @@ h2::before{content:"";width:4px;height:15px;border-radius:2px;background:var(--b
 <section id="dash" class="on">
   <div id="noticeArea"></div>
   <div class="card hero" id="kpis"></div>
+  <div class="quick">
+    <button onclick="openTab('meetings')"><span class="ic">📄</span><span><b>회의록 보기</b><span>회의를 골라 요약·전체 회의록·질의응답 확인</span></span></button>
+    <button onclick="openTab('issues')"><span class="ic">🧭</span><span><b>쟁점 따라가기</b><span>쌀값·산불 등 쟁점별 추이와 질의·답변</span></span></button>
+    <button onclick="openTab('members')"><span class="ic">👤</span><span><b>의원 분석</b><span>의원별 관심사와 예상 질문</span></span></button>
+    <button onclick="openTab('brief')"><span class="ic">📋</span><span><b>국감 브리핑</b><span>기관·쟁점별 과거 질의와 약속 정리</span></span></button>
+  </div>
   <div class="card">
     <h2>회기별 쟁점 흐름</h2>
     <p class="sub">색이 진할수록 그 회기에 많이 언급된 쟁점 · <span class="reg">파란 굵은 번호</span>는 정기회 · 칸에 마우스를 올리면 횟수 · 쟁점 이름을 누르면 상세</p>
@@ -399,13 +458,14 @@ h2::before{content:"";width:4px;height:15px;border-radius:2px;background:var(--b
 
 <!-- 회의록 -->
 <section id="meetings">
+  <div class="pagehead"><h2>회의록</h2><p>회의를 고르면 <b>요약 → 전체 회의록 → 질의응답 → 약속</b> 순으로 볼 수 있고, 위에서 전체 회의록을 검색할 수 있습니다.</p></div>
   <div class="card searchbar">
     <div class="row">
       <input type="search" id="q" placeholder="회의록 전체에서 찾기 — 예: 쌀값 시장격리, 산불 진화헬기, 오염수">
       <select id="qType"><option value="">모든 발언자</option><option value="member">위원 질의만</option><option value="official">정부·기관 답변만</option></select>
       <button class="primary" id="qBtn">검색</button>
     </div>
-    <p class="muted" style="margin:8px 0 0;font-size:13px">여러 단어를 띄어 쓰면 모두 포함된 발언을 찾습니다 · 기간은 상단 <b>회기</b> · 회의를 고르면 요약·전체 회의록·질의응답·약속을 탭으로 봅니다.</p>
+    <p class="muted" style="margin:8px 0 0;font-size:13px">여러 단어를 띄어 쓰면 모두 포함된 발언을 찾습니다 · 기간은 상단 <b>회기</b>를 따릅니다.</p>
   </div>
   <div class="two">
     <div class="card">
@@ -419,6 +479,7 @@ h2::before{content:"";width:4px;height:15px;border-radius:2px;background:var(--b
 
 <!-- 쟁점 -->
 <section id="issues">
+  <div class="pagehead"><h2>쟁점 분석</h2><p>쟁점을 고르면 회기별 추이, 관련 기관·의원, 실제로 이어진 질의와 정부 답변을 보여 줍니다.</p></div>
   <div class="two">
     <div class="card">
       <h2>쟁점 분류</h2>
@@ -665,9 +726,11 @@ function renderMeetingList(){
   document.querySelectorAll("#mList .item").forEach(el => el.onclick = () => showMeeting(el.dataset.id));
 }
 $("#mq").oninput = renderMeetingList;
+// '예.', '그렇습니다' 같은 짧은 맞장구 답변은 작게(대화 흐름은 보이되 눈길은 실질 답변으로)
+const isShort = t => (String(t || "").match(/[가-힣]/g) || []).length < 12;
 function qaHtml(q){
   return `<div class="qa"><div class="bubble q"><div class="who">${esc(q.member)} 위원</div>${esc(q.question)}</div>
-    ${q.answer ? `<div class="bubble a"><div class="who">${esc(q.answerer)} ${q.commitment ? '<span class="chip warn">약속</span>' : ""}</div>${esc(q.answer)}</div>` : ""}</div>`;
+    ${q.answer ? `<div class="bubble a${isShort(q.answer) ? " short" : ""}"><div class="who">${esc(q.answerer)} ${q.commitment ? '<span class="chip warn">약속</span>' : ""}</div>${esc(q.answer)}</div>` : ""}</div>`;
 }
 let transcript = null;   // {id, utts, agendas, filter, find}
 async function showMeeting(id, useLlm = false){
@@ -686,19 +749,18 @@ async function showMeeting(id, useLlm = false){
       ${searchState ? `<button class="link" style="font-size:13px" onclick="renderSearch()">← 「${esc(searchState.q)}」 검색 결과로</button>` : ""}
       <div class="muted" style="font-size:13px">${dot(m.date)} · ${esc(SESS[m.session_no]?.label || "")} ${m.is_sample ? '<span class="chip warn">가상 예시</span>' : ""}</div>
       <h2 style="margin:4px 0 8px;font-size:19px">${esc(meetingShort(m))}</h2>
-      <div class="row" style="gap:12px;font-size:13px">
-        ${m.pdf_url ? `<a href="${esc(m.pdf_url)}" target="_blank" rel="noopener">회의록 원문(PDF)</a>` : ""}
-        <button class="link" onclick="copyLink()">이 회의 링크 복사</button>
-        ${stats.llm_enabled && !llm ? `<button class="ghost" id="llmBtn">Claude로 서술형 요약</button>` : ""}
-      </div>
-      <div class="aibar">
-        <b>내 AI로 분석</b>
-        <button class="ghost" onclick="openInAI('chatgpt')">ChatGPT에서 열기</button>
-        <button class="ghost" onclick="openInAI('claude')">Claude에서 열기</button>
-        <button class="ghost" onclick="copyMinutes()">전문+분석 요청 복사</button>
-        <a href="/api/meetings/${encodeURIComponent(id)}/export.md?download=1">전문 다운로드(.md)</a>
-        <a href="/api/meetings/${encodeURIComponent(id)}/export.md" target="_blank" rel="noopener">전문 링크</a>
-        <p class="sub muted">AI 버튼을 누르면 분석 요청이 입력된 새 창이 열리고, 회의록 전문이 클립보드에 복사됩니다. 새 창에서 붙여넣기(Ctrl+V)하면 됩니다.</p>
+      <div class="actbar">
+        <details class="dd"><summary class="ai">✨ 내 AI로 분석 ▾</summary><div class="menu">
+          <button onclick="openInAI('chatgpt')">ChatGPT에서 열기<small>분석 요청이 입력된 새 창 + 전문은 클립보드로</small></button>
+          <button onclick="openInAI('claude')">Claude에서 열기<small>분석 요청이 입력된 새 창 + 전문은 클립보드로</small></button>
+          <button onclick="copyMinutes()">분석 요청 + 전문 복사<small>다른 AI에 붙여넣기</small></button>
+          <a href="/api/meetings/${encodeURIComponent(id)}/export.md?download=1">전문 다운로드 (.md)</a>
+          <a href="/api/meetings/${encodeURIComponent(id)}/export.md" target="_blank" rel="noopener">전문 링크 열기</a>
+          <p>새 창이 열리면 붙여넣기(Ctrl+V)로 회의록 전문을 넣고 보내세요.</p>
+        </div></details>
+        ${m.pdf_url ? `<a href="${esc(m.pdf_url)}" target="_blank" rel="noopener">원문 PDF</a>` : ""}
+        <button onclick="copyLink()">링크 복사</button>
+        ${stats.llm_enabled && !llm ? `<button id="llmBtn">Claude 서술형 요약</button>` : ""}
       </div>
       <div class="mini">
         <div><b>${fmt(nMain)}</b><span>안건</span></div>
@@ -925,7 +987,7 @@ async function showIssue(id){
         return `${head ? `<div class="chat-day"><span>${dot(t.date)} · 제${t.session}회 · <button class="link" onclick="gotoMeeting('${esc(t.meeting_id)}')">회의 보기</button></span></div>` : ""}
         <div class="qa">${t.turns.map(x => x.side === "q"
           ? `<div class="bubble q"><div class="who">${esc(x.speaker)}</div>${esc(x.text)}</div>`
-          : `<div class="bubble a${x.commitment ? " promise" : ""}"><div class="who">${esc(x.speaker)} ${x.commitment ? '<span class="chip warn">약속</span>' : ""}</div>${esc(x.text)}</div>`).join("")}</div>`;
+          : `<div class="bubble a${x.commitment ? " promise" : ""}${!x.commitment && isShort(x.text) ? " short" : ""}"><div class="who">${esc(x.speaker)} ${x.commitment ? '<span class="chip warn">약속</span>' : ""}</div>${esc(x.text)}</div>`).join("")}</div>`;
       }), 5, "개 대화") || '<div class="empty">-</div>'}</div>`;
 }
 // ── 의원 분석: 관심 쟁점·질의 관점·핵심어·예상 질문 ──
@@ -1387,9 +1449,28 @@ function loadNet2d(stage, data){
 // ── 브리핑 ──
 async function fillBriefSelectors(){
   const [orgs, tax, sp] = await Promise.all([api("/api/orgs"), api("/api/taxonomy"), api("/api/speakers")]);
+  briefStarter(orgs, tax, sp);
   $("#bOrg").innerHTML = '<option value="">피감기관(전체)</option>' + orgs.filter(o => o.mentions).sort((a, b) => b.mentions - a.mentions).map(o => `<option value="${esc(o.name)}">${esc(o.name)} (${fmt(o.mentions)})</option>`).join("");
   $("#bIssue").innerHTML = '<option value="">쟁점(전체)</option>' + tax.map(t => `<option value="${esc(t.id)}">${t.parent ? "— " : ""}${esc(t.label)}</option>`).join("");
   $("#bMember").innerHTML = '<option value="">위원(전체)</option>' + sp.filter(s => s.speaker_type === "member").sort((a, b) => a.speaker_name.localeCompare(b.speaker_name, "ko")).map(s => `<option>${esc(s.speaker_name)}</option>`).join("");
+}
+function briefStarter(orgs, tax, sp){
+  if($("#bOut").innerHTML.trim()) return;
+  const topOrgs = orgs.filter(o => o.mentions).sort((a, b) => b.mentions - a.mentions).slice(0, 6);
+  const leafIssues = tax.filter(t => t.parent).slice(0, 8);
+  const members = sp.filter(s => s.speaker_type === "member").sort((a, b) => (b.n_questions || 0) - (a.n_questions || 0)).slice(0, 6);
+  const btn = (label, js) => `<button onclick="${js}">${esc(label)}</button>`;
+  $("#bOut").innerHTML = `<div class="card starter">
+    <h2>이렇게 사용하세요</h2>
+    <ol><li>위에서 <b>피감기관·쟁점·위원</b> 중 하나 이상을 고르고(키워드는 선택)</li><li><b>브리핑 만들기</b>를 누르면 핵심 쟁점, 주요 질의와 답변, 정부 약속 추적표가 정리됩니다.</li><li>결과는 Markdown으로 내려받아 보고서에 붙일 수 있습니다.</li></ol>
+    <h3>기관으로 바로 만들기</h3><div class="ex">${topOrgs.map(o => btn(o.name, `quickBrief('bOrg','${esc(o.name)}')`)).join("")}</div>
+    <h3>쟁점으로</h3><div class="ex">${leafIssues.map(t => btn(t.label, `quickBrief('bIssue','${esc(t.id)}')`)).join("")}</div>
+    <h3>질의 많은 위원으로</h3><div class="ex">${members.map(m => btn(m.speaker_name + " 위원", `quickBrief('bMember','${esc(m.speaker_name)}')`)).join("")}</div>
+  </div>`;
+}
+function quickBrief(sel, v){
+  ["bOrg", "bIssue", "bMember"].forEach(k => $("#" + k).value = k === sel ? v : ""); $("#bKw").value = "";
+  $("#bBtn").click();
 }
 function briefParams(){ const p = new URLSearchParams({org: $("#bOrg").value, issue: $("#bIssue").value, keyword: $("#bKw").value, member: $("#bMember").value}); if(cur()) p.set("session", cur()); return p }
 function briefMember(name){
@@ -1490,6 +1571,12 @@ $("#sampleBtn").onclick = async () => {
   catch(e){ $("#colLog").textContent = "오류: " + e.message }
 };
 
+// 펼친 메뉴는 바깥을 누르면 닫는다
+document.addEventListener("click", e => document.querySelectorAll("details.dd[open]").forEach(d => { if(!d.contains(e.target) || e.target.closest(".menu button, .menu a")) d.open = false }));
+function globalSearch(){
+  const q = $("#gq").value.trim(); if(!q) return;
+  openTab("meetings"); $("#q").value = q; doSearch(); $("#gq").blur();
+}
 // ── 시작 ──
 (async () => {
   try{ await loadSessions() }catch(e){}
