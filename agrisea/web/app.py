@@ -9,7 +9,7 @@ from typing import Any
 from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, PlainTextResponse
 
-from .. import analysis
+from .. import analysis, members
 from ..config import Settings, get_settings
 from ..lexicon import ISSUES
 from ..ontology import KG_PATH, PRESET_QUERIES, kg_from_file, kg_from_store, run_sparql
@@ -178,6 +178,34 @@ def create_app(settings: Settings | None = None, store: Store | None = None) -> 
             return analysis.issue_detail(store, issue_id, session)
         except KeyError:
             raise HTTPException(404, "쟁점을 찾을 수 없습니다.") from None
+
+    def member_scope(session: int | None, meetings: str) -> dict:
+        """위원별 분석 범위: 고른 회의들 > 회기 > 전체(전체·회기 결과는 저장해 재사용)."""
+        ids = [m for m in meetings.split(",") if m.strip()][:60] if meetings else []
+        if ids:
+            return members.member_profiles(store, meeting_ids=ids)
+        if not session:
+            return cached("members_all")
+        key = f"members:s{session}"
+        value = store.kv_get(key)
+        if value is None:
+            value = members.member_profiles(store, session=session)
+            store.kv_set(key, value)
+        return value
+
+    @app.get("/api/members")
+    def member_list(session: int | None = None, meetings: str = ""):
+        """위원별 관심 쟁점·질의 관점·핵심어 요약(질의 많은 순). meetings=회의ID,회의ID 로 일부 회의만."""
+        p = member_scope(session, meetings)
+        return {"scope": p["scope"], "members": members.summary_rows(p)}
+
+    @app.get("/api/members/{name}")
+    def member_detail(name: str, session: int | None = None, meetings: str = ""):
+        """위원 상세: 관심 쟁점, 질의 관점, 핵심어, 상대 기관, 예상 질문, 대표 질의응답, 받아낸 약속."""
+        p = member_scope(session, meetings)
+        if name not in p["members"]:
+            raise HTTPException(404, "이 범위에서 해당 위원의 발언을 찾을 수 없습니다.")
+        return {"scope": p["scope"], **p["members"][name]}
 
     @app.get("/api/orgs")
     def orgs():
