@@ -10,7 +10,7 @@ from typing import Any, Callable
 
 import requests
 
-from .api_client import AssemblyClient, normalize_row
+from .api_client import AssemblyAPIError, AssemblyClient, normalize_row
 from .config import ROOT, Settings
 from .ontology import build_graph, save_graph
 from .parser import extract_pdf_text, parse_minutes
@@ -41,14 +41,26 @@ def collect_range(store: Store, settings: Settings, date_from: str, date_to: str
         raise ValueError("종료일이 시작일보다 빠릅니다.")
     client = AssemblyClient(settings)
     found: list[dict] = []
+    failed: list[str] = []
     day = start
     while day <= end:
         q = {**(params or {}), "CONF_DATE": day.isoformat()}
-        for m in client.committee_meetings(only_target=only_target, **q):
-            store.upsert_meeting(m)
-            found.append(m)
+        try:
+            for m in client.committee_meetings(only_target=only_target, **q):
+                store.upsert_meeting(m)
+                found.append(m)
+        except AssemblyAPIError as e:
+            # 하루 조회가 막혀도(접속 시간 초과 등) 나머지 날짜와 이미 모은 회의는 살린다
+            if e.code != "HTTP":
+                raise
+            failed.append(day.isoformat())
+            progress(f"[조회 실패] {day.isoformat()}: {e.message}")
         day += timedelta(days=1)
-    progress(f"{date_from}~{date_to}: 회의 {len(found)}건 메타데이터 저장")
+    progress(f"{date_from}~{date_to}: 회의 {len(found)}건 메타데이터 저장"
+             + (f" · 조회 실패 {len(failed)}일({', '.join(failed)})" if failed else ""))
+    total_days = (end - start).days + 1
+    if failed and len(failed) == total_days:
+        raise AssemblyAPIError("HTTP", f"모든 날짜 조회 실패({total_days}일): 국회 API에 접속할 수 없습니다.")
     return found
 
 

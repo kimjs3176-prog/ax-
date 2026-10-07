@@ -117,3 +117,21 @@ def test_transient_error_is_retried(settings, monkeypatch):
 
     page = AssemblyClient(settings, session=Flaky()).fetch_page()
     assert len(calls) == 2 and page.total == 1
+
+
+def test_collect_range_survives_a_blocked_day(store, settings, monkeypatch):
+    """하루 조회가 접속 오류로 막혀도 나머지 날짜의 회의는 저장하고, 모든 날이 막히면 실패로 알린다."""
+    from agrisea import pipeline
+
+    def fake_meetings(self, only_target=True, **q):
+        if q["CONF_DATE"] == "2024-10-08":
+            raise AssemblyAPIError("HTTP", "Connection timed out")
+        return [{**normalize_row(ROW_A1), "agendas": []}] if q["CONF_DATE"] == "2024-10-07" else []
+
+    monkeypatch.setattr(AssemblyClient, "committee_meetings", fake_meetings)
+    found = pipeline.collect_range(store, settings, "2024-10-07", "2024-10-09", {"DAE_NUM": "22"},
+                                   progress=lambda _: None)
+    assert len(found) == 1 and store.meeting(found[0]["meeting_id"])
+    with pytest.raises(AssemblyAPIError):
+        pipeline.collect_range(store, settings, "2024-10-08", "2024-10-08", {"DAE_NUM": "22"},
+                               progress=lambda _: None)
