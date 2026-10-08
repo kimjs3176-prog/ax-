@@ -441,7 +441,7 @@ h3{font-size:14.5px;color:var(--ink)}
   </div>
   <div class="card">
     <details>
-      <summary>데이터 직접 수집 (자동 수집은 매일 06시)</summary>
+      <summary>데이터 직접 수집 (자동 수집은 매일 07·13·19시)</summary>
       <p class="muted" style="font-size:13px">열린국회정보 위원회 회의록 API에서 농림축산식품해양수산위원회 회의를 가져옵니다. 여기서 수집한 데이터는 임시 저장소에 쌓여 서버가 재시작되면 사라집니다.</p>
       <div class="row">
         <label>대수 <input id="colDae" value="22" size="3"></label>
@@ -634,7 +634,8 @@ async function loadDash(){
   let s;
   try{ s = await api("/api/stats") }
   catch(e){ $("#noticeArea").innerHTML = `<div class="notice">서버 응답 오류: ${esc(e.message)} — <a href="/api/health" target="_blank">/api/health</a></div>`; return }
-  const upd = s.data_updated ? `자동 갱신 ${esc(s.data_updated.replace("T", " ").slice(0, 16))} UTC` : "자동 수집 데이터 없음";
+  const kst = iso => { const d = new Date(iso); return isNaN(d) ? iso : new Date(d.getTime() + 9 * 3600e3).toISOString().slice(0, 16).replace("T", " ") };
+  const upd = s.data_updated ? `데이터 갱신 ${esc(kst(s.data_updated))} (한국시간) · 자동 수집 하루 3회` : "자동 수집 데이터 없음";
   $("#noticeArea").innerHTML = s.samples ? `<div class="notice">가상 예시 회의록 ${s.samples}건이 포함되어 있습니다.</div>` : "";
   const latest = SESSIONS[0];
   const renderHero = (topIssue, recentN) => { $("#kpis").innerHTML = `

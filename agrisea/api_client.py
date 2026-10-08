@@ -106,7 +106,7 @@ def is_target_committee(row: dict[str, Any], aliases: tuple[str, ...] = COMMITTE
 
 class AssemblyClient:
     def __init__(self, settings: Settings, session: requests.Session | None = None,
-                 timeout: float = 30.0, sleep: float = 0.2, retries: int = 2):
+                 timeout: float = 30.0, sleep: float = 0.2, retries: int = 4):
         if not settings.api_key:
             raise ValueError("ASSEMBLY_API_KEY 환경변수(또는 .env)에 인증키를 설정하세요.")
         self.settings = settings
@@ -127,8 +127,8 @@ class AssemblyClient:
                 data = resp.json()
                 break
             except (requests.RequestException, ValueError) as e:
-                if attempt < self.retries:  # 일시적 오류는 잠시 후 재시도(장기간 수집 보호)
-                    time.sleep(2 ** attempt)
+                if attempt < self.retries:  # 일시적 오류는 잠시 후 재시도(2·4·8·16초, 장기간 수집 보호)
+                    time.sleep(2 ** (attempt + 1))
                     continue
                 # 예외 메시지에 요청 URL(인증키 포함)이 들어가므로 가린 뒤 전달
                 raise AssemblyAPIError("HTTP", self._redact(str(e))) from None

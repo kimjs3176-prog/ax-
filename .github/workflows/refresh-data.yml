@@ -1,6 +1,8 @@
 # 회의록 자동 수집: 열린국회정보 API로 농해수위 회의록을 모아 data/seed.sqlite3.gz 로 커밋한다.
 # 커밋되면 Vercel이 새로 배포하면서 이 데이터를 싣는다(배포 환경의 저장소는 임시라서 이 방식으로 영구 보관).
-#  - 매일 06:00(KST) 실행: 저장된 마지막 회의일 7일 전부터 오늘까지 수집
+#  - 하루 3번(07:17·13:17·19:17 KST) 실행: 저장된 마지막 회의일 7일 전부터 오늘까지 수집
+#    (정각 예약은 GitHub 혼잡으로 2~4시간씩 늦게 시작돼 정각을 피함. 회의록이 낮에 올라와도 당일 반영)
+#  - 국회 API 접속이 일부 날짜만 막히면 나머지는 저장하고 계속, 실행이 실패하면 이슈로 알림
 #  - 초기 데이터가 없으면 22대 임기 시작일(2024-05-30)부터 전체 수집
 #  - 수집 후 회의 요약·쟁점/기관 집계·관계망·지식그래프(data/kg.nt.gz)를 미리 계산해 함께 커밋
 #  - 내용이 바뀌었을 때만 커밋
@@ -9,7 +11,9 @@ name: 회의록 데이터 갱신
 
 on:
   schedule:
-    - cron: "0 21 * * *"   # 매일 06:00 KST
+    - cron: "17 22 * * *"   # 07:17 KST
+    - cron: "17 4 * * *"    # 13:17 KST
+    - cron: "17 10 * * *"   # 19:17 KST
   workflow_dispatch:
     inputs:
       date_from:
@@ -29,9 +33,11 @@ on:
       - "agrisea/analysis.py"
       - "agrisea/precompute.py"
       - "agrisea/spacing.py"
+      - "agrisea/members.py"
 
 permissions:
   contents: write
+  issues: write   # 실패 알림 이슈
 
 concurrency:
   group: refresh-data
@@ -40,7 +46,7 @@ concurrency:
 jobs:
   refresh:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 90
     env:
       ASSEMBLY_API_KEY: ${{ secrets.ASSEMBLY_API_KEY }}
       AGRISEA_DATA_DIR: ${{ github.workspace }}/var
@@ -49,10 +55,10 @@ jobs:
       AGRISEA_MINUTES_PROXY: ${{ vars.MINUTES_PROXY || 'https://ax-rosy-seven.vercel.app/api/minutes-text' }}
     steps:
       # 이벤트 시점 커밋이 아니라 실행 시작 시점의 최신 브랜치를 받는다(앞선 실행이 커밋한 데이터를 이어받기 위함)
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ github.ref_name }}
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
@@ -93,3 +99,39 @@ jobs:
           # 그사이 다른 실행이 데이터를 커밋했으면, 방금 만든 데이터 파일을 우선해 다시 얹는다
           git pull --rebase -X theirs origin "${GITHUB_REF_NAME}"
           git push origin "HEAD:${GITHUB_REF_NAME}"
+
+      - name: 실행 요약
+        if: always()
+        run: |
+          {
+            echo "### 회의록 데이터 갱신"
+            python -m agrisea stats 2>/dev/null | sed 's/^/    /' || true
+            if [ -f data/seed.meta.json ]; then echo; echo '```json'; cat data/seed.meta.json; echo '```'; fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # 예약 실행이 실패하면 이슈 하나에 모아 알린다(같은 제목의 열린 이슈가 있으면 댓글로 추가)
+      - name: 실패 알림
+        if: failure() && github.event_name == 'schedule'
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const title = "회의록 자동 수집 실패";
+            const url = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = `자동 수집이 실패했습니다: ${url}\n\n국회 API 접속 장애(해외 접속 차단·시간 초과)이면 다음 예약 실행에서 대개 복구됩니다. ` +
+                         `계속 실패하면 Actions에서 「회의록 데이터 갱신」을 수동 실행(Run workflow)하세요.`;
+            const { data: open } = await github.rest.issues.listForRepo({ ...context.repo, state: "open", per_page: 50 });
+            const found = open.find(i => i.title === title && !i.pull_request);
+            if (found) await github.rest.issues.createComment({ ...context.repo, issue_number: found.number, body });
+            else await github.rest.issues.create({ ...context.repo, title, body });
+
+      # 성공하면 열려 있는 실패 알림 이슈를 닫는다
+      - name: 실패 알림 정리
+        if: success() && github.event_name == 'schedule'
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { data: open } = await github.rest.issues.listForRepo({ ...context.repo, state: "open", per_page: 50 });
+            for (const i of open.filter(i => i.title === "회의록 자동 수집 실패" && !i.pull_request)) {
+              await github.rest.issues.createComment({ ...context.repo, issue_number: i.number, body: "다음 자동 수집이 성공해 닫습니다." });
+              await github.rest.issues.update({ ...context.repo, issue_number: i.number, state: "closed", state_reason: "completed" });
+            }
